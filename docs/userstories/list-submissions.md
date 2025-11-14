@@ -8,8 +8,8 @@ Preconditions:
 
 Main Flow:
 1. Actor sends GET request to /api/submissions
-2. System returns a list of ULIDs of actor's submissions
-3. System exposes endpoints for retrieving artefacts and simulation results for each returned ULID
+2. System returns a list of actor's submissions
+3. System exposes endpoints for retrieving artefacts and simulation results for each returned submissions
 
 Postconditions:
-- Actor has the list of their submissions' ULIDs
+- Actor has the list of their submissions
