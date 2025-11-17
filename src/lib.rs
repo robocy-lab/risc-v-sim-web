@@ -22,6 +22,8 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{Instrument, error, info, info_span};
 use ulid::{ULID_LEN, Ulid};
 
+pub mod auth;
+
 #[derive(Deserialize)]
 pub struct Submission {
     ulid: Ulid,
@@ -286,6 +288,7 @@ pub struct Config {
     pub submissions_folder: PathBuf,
     pub ticks_max: u32,
     pub codesize_max: u32,
+    pub auth_state: auth::AuthState,
 }
 
 pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
@@ -300,14 +303,19 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
     };
 
     let state = Arc::new(cfg);
+    let api_router = Router::new()
+        .route("/health", get(health_handler))
+        .route("/submit", post(submit_handler))
+        .route("/submission", get(submission_handler))
+        .nest("/auth", auth::auth_routes())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth::auth_middleware,
+        ));
+
     let router = Router::new()
-        .nest(
-            "/api",
-            Router::new()
-                .route("/health", get(health_handler))
-                .route("/submit", post(submit_handler))
-                .route("/submission", get(submission_handler)),
-        )
+        .nest("/api", api_router)
+        .nest("/auth", auth::auth_routes())
         .fallback_service(ServeDir::new("static"))
         .layer(ServiceBuilder::new().layer(tower_http::cors::CorsLayer::permissive()))
         .layer(TraceLayer::new_for_http().make_span_with(def_span))
@@ -333,9 +341,26 @@ fn submission_file(config: &Config, ulid: Ulid) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::u32;
 
-    use super::*;
+    fn create_test_config() -> Config {
+        unsafe {
+            std::env::set_var("GITHUB_CLIENT_ID", "test_client_id");
+            std::env::set_var("GITHUB_CLIENT_SECRET", "test_client_secret");
+            std::env::set_var("JWT_SECRET", "test_jwt_secret");
+        }
+
+        Config {
+            as_binary: "dummy".into(),
+            ld_binary: "dummy".into(),
+            simulator_binary: "dummy".into(),
+            submissions_folder: "submissions".into(),
+            ticks_max: u32::MAX,
+            codesize_max: u32::MAX,
+            auth_state: auth::create_auth_state().unwrap(),
+        }
+    }
 
     #[tokio::test]
     async fn test_health_handler() {
@@ -345,19 +370,53 @@ mod tests {
 
     #[test]
     fn test_path_utils() {
-        let config = Config {
-            as_binary: "dummy".into(),
-            ld_binary: "dummy".into(),
-            simulator_binary: "dummy".into(),
-            submissions_folder: "submissions".into(),
-            ticks_max: u32::MAX,
-            codesize_max: u32::MAX,
-        };
+        let config = create_test_config();
         for _ in 0..10 {
             let ulid = Ulid::new();
             let dir = submission_dir(&config, ulid);
             let file = submission_file(&config, ulid);
             assert!(file.starts_with(dir));
         }
+    }
+
+    #[test]
+    fn test_auth_state_creation() {
+        unsafe {
+            std::env::set_var("GITHUB_CLIENT_ID", "test_client_id");
+            std::env::set_var("GITHUB_CLIENT_SECRET", "test_client_secret");
+            std::env::set_var("JWT_SECRET", "test_jwt_secret");
+        }
+
+        let auth_state = auth::create_auth_state();
+        assert!(auth_state.is_ok());
+    }
+
+    #[test]
+    fn test_jwt_creation_and_validation() {
+        let config = create_test_config();
+
+        let claims = auth::Claims {
+            sub: "123".to_string(),
+            login: "testuser".to_string(),
+            name: Some("Test User".to_string()),
+            exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+        };
+
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(config.auth_state.jwt_secret.as_ref()),
+        )
+        .unwrap();
+
+        let decoded = jsonwebtoken::decode::<auth::Claims>(
+            &token,
+            &jsonwebtoken::DecodingKey::from_secret(config.auth_state.jwt_secret.as_ref()),
+            &jsonwebtoken::Validation::default(),
+        )
+        .unwrap();
+
+        assert_eq!(decoded.claims.login, "testuser");
+        assert_eq!(decoded.claims.sub, "123");
     }
 }

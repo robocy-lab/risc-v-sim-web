@@ -16,6 +16,7 @@ async fn main() -> Result<()> {
 
     let ticks_max: u32 = std::env::var("TICKS_MAX")?.parse()?;
     let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
+    let auth_state = risc_v_sim_web::auth::create_auth_state()?;
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
         listener,
@@ -34,6 +35,7 @@ async fn main() -> Result<()> {
                 .into(),
             ticks_max: ticks_max,
             codesize_max: codesize_max,
+            auth_state,
         },
     )
     .await;
