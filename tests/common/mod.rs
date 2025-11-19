@@ -54,6 +54,13 @@ async fn make_listener() -> (u16, TcpListener) {
 }
 
 pub fn default_config(test_name: &str) -> risc_v_sim_web::Config {
+    // Set up test environment variables
+    unsafe {
+        std::env::set_var("GITHUB_CLIENT_ID", "test_client_id");
+        std::env::set_var("GITHUB_CLIENT_SECRET", "test_client_secret");
+        std::env::set_var("JWT_SECRET", "test_jwt_secret");
+    }
+
     risc_v_sim_web::Config {
         as_binary: std::env::var("AS_BINARY")
             .unwrap_or_else(|_| "riscv64-elf-as".to_string())
@@ -67,6 +74,7 @@ pub fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         submissions_folder: format!("submissions-{test_name}").into(),
         ticks_max: 15,
         codesize_max: 256,
+        auth_state: risc_v_sim_web::auth::create_auth_state().unwrap(),
     }
 }
 
@@ -77,29 +85,71 @@ pub async fn submit_program(
     ticks: u32,
     path: impl AsRef<Path>,
 ) -> Response {
+    submit_program_with_auth(client, port, ticks, path, None).await
+}
+
+#[allow(dead_code)]
+pub async fn submit_program_with_auth(
+    client: &Client,
+    port: u16,
+    ticks: u32,
+    path: impl AsRef<Path>,
+    auth_token: Option<&str>,
+) -> Response {
     let request_url = server_url(port).join("api/submit").unwrap();
     let form = reqwest::multipart::Form::new()
         .text("ticks", ticks.to_string())
         .file("file", path)
         .await
         .unwrap();
-    client
-        .post(request_url)
-        .multipart(form)
-        .send()
-        .await
-        .unwrap()
+
+    let mut request = client.post(request_url).multipart(form);
+
+    if let Some(token) = auth_token {
+        request = request.header("Cookie", format!("jwt={}", token));
+    }
+
+    request.send().await.unwrap()
 }
 
 #[allow(dead_code)]
 pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> Response {
+    get_submission_with_auth(client, port, submission_id, None).await
+}
+
+#[allow(dead_code)]
+pub async fn get_submission_with_auth(
+    client: &Client,
+    port: u16,
+    submission_id: Ulid,
+    auth_token: Option<&str>,
+) -> Response {
     let request_url = server_url(port).join("api/submission").unwrap();
-    client
+    let mut request = client
         .get(request_url)
-        .query(&[("ulid", &submission_id.to_string())])
-        .send()
-        .await
-        .unwrap()
+        .query(&[("ulid", &submission_id.to_string())]);
+
+    if let Some(token) = auth_token {
+        request = request.header("Cookie", format!("jwt={}", token));
+    }
+
+    request.send().await.unwrap()
+}
+
+/// Creates a JWT token for testing
+pub fn create_test_jwt() -> String {
+    let claims = risc_v_sim_web::auth::Claims {
+        sub: "test_user_123".to_string(),
+        login: "testuser".to_string(),
+        name: Some("Test User".to_string()),
+        exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),
+    };
+
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret("test_jwt_secret".as_ref()),
+    ).unwrap()
 }
 
 /// Returns the server url.
@@ -114,5 +164,12 @@ where
     T: for<'a> serde::Deserialize<'a>,
 {
     let response_bytes = response.bytes().await.unwrap();
+    let response_str = String::from_utf8_lossy(&response_bytes);
+
+    // For debugging
+    if response_str.contains("error") || !response_str.contains("ulid") {
+        println!("Response: {}", response_str);
+    }
+
     serde_json::from_slice::<T>(&response_bytes).unwrap()
 }

@@ -25,6 +25,11 @@ tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 uuid = { version = "1.18.1", features = ["v4"] }
 ulid = { version = "1.2.1", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
+jsonwebtoken = "9.3"
+base64 = "0.22"
+oauth2 = "4.4"
+reqwest = { version = "0.12", features = ["json"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12.24", features = ["multipart", "stream"] }

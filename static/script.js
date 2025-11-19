@@ -1394,8 +1394,85 @@ class ResultsPage {
     }
 }
 
+class AuthManager {
+    constructor() {
+        this.initializeAuth();
+    }
+
+    async initializeAuth() {
+        await this.checkAuthStatus();
+        this.setupEventListeners();
+    }
+
+    setupEventListeners() {
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        if (loginBtn) {
+            loginBtn.addEventListener('click', () => this.login());
+        }
+
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', () => this.logout());
+        }
+    }
+
+    async checkAuthStatus() {
+        try {
+            const response = await fetch('/api/auth/me');
+            if (response.ok) {
+                const data = await response.json();
+                this.showUserInfo(data.user);
+            } else {
+                this.showLoginButton();
+            }
+        } catch (error) {
+            this.showLoginButton();
+        }
+    }
+
+    showUserInfo(user) {
+        const userSection = document.getElementById('user-info');
+        const loginSection = document.getElementById('login-section');
+        const userName = document.getElementById('user-name');
+
+        if (userSection && loginSection && userName) {
+            userName.textContent = user.name || user.login;
+            userSection.style.display = 'flex';
+            loginSection.style.display = 'none';
+        }
+    }
+
+    showLoginButton() {
+        const userSection = document.getElementById('user-info');
+        const loginSection = document.getElementById('login-section');
+
+        if (userSection && loginSection) {
+            userSection.style.display = 'none';
+            loginSection.style.display = 'block';
+        }
+    }
+
+    login() {
+        window.location.href = '/auth/login';
+    }
+
+    async logout() {
+        try {
+            await fetch('/auth/logout');
+            window.location.reload();
+        } catch (error) {
+            console.error('Logout error:', error);
+            window.location.reload();
+        }
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
+    // Initialize auth on all pages
+    new AuthManager();
+
     if (window.location.pathname.endsWith('results.html')) {
         new ResultsPage();
     } else if (window.location.pathname.endsWith('submissions.html')) {

@@ -35,6 +35,44 @@ header p {
     margin-bottom: 20px;
 }
 
+.auth-section {
+    margin-top: 20px;
+    display: flex;
+    justify-content: center;
+}
+
+#user-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    color: white;
+    font-weight: 500;
+}
+
+#user-name {
+    font-size: 1rem;
+}
+
+.auth-btn {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.auth-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
+}
+
 .header-nav {
     display: flex;
     gap: 20px;

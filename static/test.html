@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Auth</title>
+</head>
+<body>
+    <button id="login-btn">Login with GitHub</button>
+    <div id="user-info" style="display: none;">
+        <span id="user-name"></span>
+        <button id="logout-btn">Logout</button>
+    </div>
+    
+    <script>
+        console.log('Test page loaded');
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOMContentLoaded fired');
+            
+            const loginBtn = document.getElementById('login-btn');
+            const userInfo = document.getElementById('user-info');
+            
+            console.log('loginBtn:', loginBtn);
+            console.log('userInfo:', userInfo);
+            
+            if (loginBtn) {
+                console.log('Adding event listener to login button');
+                loginBtn.addEventListener('click', () => {
+                    console.log('Login button clicked!');
+                    window.location.href = '/api/auth/login';
+                });
+            }
+            
+            // Test auth status
+            fetch('/api/auth/me')
+                .then(response => {
+                    console.log('Auth response:', response.status);
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error('Not authenticated');
+                })
+                .then(data => {
+                    console.log('User data:', data);
+                    if (loginBtn) loginBtn.style.display = 'none';
+                    if (userInfo) {
+                        userInfo.style.display = 'block';
+                        document.getElementById('user-name').textContent = data.user.login;
+                    }
+                })
+                .catch(error => {
+                    console.log('Not authenticated:', error.message);
+                    if (loginBtn) loginBtn.style.display = 'block';
+                    if (userInfo) userInfo.style.display = 'none';
+                });
+        });
+    </script>
+</body>
+</html>
