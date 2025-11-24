@@ -149,7 +149,8 @@ pub fn create_test_jwt() -> String {
         &jsonwebtoken::Header::default(),
         &claims,
         &jsonwebtoken::EncodingKey::from_secret("test_jwt_secret".as_ref()),
-    ).unwrap()
+    )
+    .unwrap()
 }
 
 /// Returns the server url.

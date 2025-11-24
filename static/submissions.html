@@ -17,10 +17,7 @@
                         <a href="submissions.html" class="nav-link active">My Submissions</a>
                     </nav>
                 </div>
-                <div class="header-actions">
-                    <button id="clear-all-btn" class="clear-btn">Clear All</button>
-                    <button id="fetch-by-id-btn" class="submit-btn">Fetch by ID</button>
-                </div>
+
             </div>
 
             <div id="submissions-list" class="submissions-list">
@@ -30,25 +27,7 @@
                 </div>
             </div>
 
-            <!-- Modal for fetching by ID -->
-            <div id="fetch-modal" class="modal" style="display: none;">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3>Fetch Submission by ID</h3>
-                        <button class="modal-close" id="modal-close">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="form-group">
-                            <label for="submission-id">Submission ID:</label>
-                            <input type="text" id="submission-id" placeholder="Enter submission ID (ULID)" required>
-                        </div>
-                        <div class="modal-actions">
-                            <button id="fetch-btn" class="submit-btn">Fetch</button>
-                            <button id="cancel-btn" class="clear-btn">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+
         </div>
     </div>
 

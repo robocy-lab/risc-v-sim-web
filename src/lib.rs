@@ -3,10 +3,12 @@ use axum::{
     Router,
     body::Body,
     extract::{Multipart, Query, State, multipart::Field},
-    http::{Request, StatusCode},
+    http::{HeaderMap, Request, StatusCode},
     response::Json,
     routing::{get, post},
 };
+use futures_util::stream::TryStreamExt;
+use mongodb::Collection;
 use serde::Deserialize;
 use serde_json::json;
 use std::{io::ErrorKind, time::Duration};
@@ -23,6 +25,7 @@ use tracing::{Instrument, error, info, info_span};
 use ulid::{ULID_LEN, Ulid};
 
 pub mod auth;
+pub mod database;
 
 #[derive(Deserialize)]
 pub struct Submission {
@@ -281,6 +284,56 @@ async fn submission_handler(
     (StatusCode::OK, json_content.unwrap())
 }
 
+async fn user_submissions_handler(
+    State(config): State<Arc<Config>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Extract user ID from JWT
+    let auth_header = headers
+        .get("cookie")
+        .and_then(|h| h.to_str().ok())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let token = auth_header
+        .split("jwt=")
+        .nth(1)
+        .and_then(|s| s.split(';').next())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let token_data = jsonwebtoken::decode::<auth::Claims>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret(config.auth_state.jwt_secret.as_ref()),
+        &jsonwebtoken::Validation::default(),
+    )
+    .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    let user_id = token_data
+        .claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+
+    // Get submissions from database
+    let db = database::get_database().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    let collection: Collection<database::SubmissionRecord> = db.collection("submissions");
+
+    let filter = mongodb::bson::doc! { "user_id": user_id };
+    let mut cursor = collection.find(filter).await.map_err(|e| {
+        error!("Failed to query user submissions: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let mut submissions = Vec::new();
+    while let Some(submission) = cursor.try_next().await.map_err(|e| {
+        error!("Failed to iterate submissions: {:?}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })? {
+        submissions.push(submission);
+    }
+
+    Ok(Json(json!({ "submissions": submissions })))
+}
+
 pub struct Config {
     pub as_binary: PathBuf,
     pub ld_binary: PathBuf,
@@ -307,6 +360,7 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
         .route("/health", get(health_handler))
         .route("/submit", post(submit_handler))
         .route("/submission", get(submission_handler))
+        .route("/user-submissions", get(user_submissions_handler))
         .nest("/auth", auth::auth_routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

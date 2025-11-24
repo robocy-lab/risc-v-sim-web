@@ -30,6 +30,9 @@ base64 = "0.22"
 oauth2 = "4.4"
 reqwest = { version = "0.12", features = ["json"] }
 chrono = { version = "0.4", features = ["serde"] }
+mongodb = "3.1"
+rand = "0.8"
+futures-util = "0.3"
 
 [dev-dependencies]
 reqwest = { version = "0.12.24", features = ["multipart", "stream"] }

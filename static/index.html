@@ -53,11 +53,30 @@ _start:
                         <span class="btn-loading" style="display: none;">Executing...</span>
                     </button>
                     <button type="button" id="clear-btn">Clear</button>
+                    <button type="button" id="fetch-by-id-btn" class="secondary-btn">Fetch by ID</button>
                 </div>
             </form>
 
             <div id="error-message" class="error-message" style="display: none;"></div>
         </main>
+        
+        <!-- Fetch by ID Modal -->
+        <div id="fetch-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Fetch Submission by ID</h3>
+                    <span id="modal-close" class="modal-close">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <label for="submission-id">Submission ID:</label>
+                    <input type="text" id="submission-id" placeholder="Enter submission UUID">
+                </div>
+                <div class="modal-footer">
+                    <button id="cancel-btn" class="btn-secondary">Cancel</button>
+                    <button id="fetch-btn" class="btn-primary">Fetch</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>

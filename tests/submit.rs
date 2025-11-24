@@ -35,8 +35,14 @@ async fn submit_simple() {
         async |port| {
             let client = reqwest::Client::new();
             let auth_token = create_test_jwt();
-            let submit_response =
-                submit_program_with_auth(&client, port, 5, "riscv-samples/src/basic.s", Some(&auth_token)).await;
+            let submit_response = submit_program_with_auth(
+                &client,
+                port,
+                5,
+                "riscv-samples/src/basic.s",
+                Some(&auth_token),
+            )
+            .await;
             let submit_status = submit_response.status();
             let resp_text = match submit_response.text().await {
                 Ok(x) => format!("Response as text: {x}"),
@@ -69,7 +75,9 @@ async fn submit_non_existent() {
             let client = reqwest::Client::new();
             let auth_token = create_test_jwt();
             let fake_submission_id = Ulid::new();
-            let response = get_submission_with_auth(&client, port, fake_submission_id, Some(&auth_token)).await;
+            let response =
+                get_submission_with_auth(&client, port, fake_submission_id, Some(&auth_token))
+                    .await;
             assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
         },
     )
@@ -104,7 +112,14 @@ async fn codesize_max_restriction() {
         async |port| {
             let client = reqwest::Client::new();
             let auth_token = create_test_jwt();
-            let submit_response = submit_program_with_auth(&client, port, 5, "riscv-samples/src/big.s", Some(&auth_token)).await;
+            let submit_response = submit_program_with_auth(
+                &client,
+                port,
+                5,
+                "riscv-samples/src/big.s",
+                Some(&auth_token),
+            )
+            .await;
             let submit_status = submit_response.status();
             let resp_text = match submit_response.text().await {
                 Ok(x) => format!("Response as text: {x}"),
@@ -128,8 +143,14 @@ async fn ticks_max_restriction() {
         async |port| {
             let client = reqwest::Client::new();
             let auth_token = create_test_jwt();
-            let submit_response =
-                submit_program_with_auth(&client, port, 100, "riscv-samples/src/basic.s", Some(&auth_token)).await;
+            let submit_response = submit_program_with_auth(
+                &client,
+                port,
+                100,
+                "riscv-samples/src/basic.s",
+                Some(&auth_token),
+            )
+            .await;
             let submit_status = submit_response.status();
             let resp_text = match submit_response.text().await {
                 Ok(x) => format!("Response as text: {x}"),
@@ -160,7 +181,8 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
 
     let start = Instant::now();
 
-    let submit_response = submit_program_with_auth(&client, port, ticks, &source_path, Some(&auth_token)).await;
+    let submit_response =
+        submit_program_with_auth(&client, port, ticks, &source_path, Some(&auth_token)).await;
     let submit_status = submit_response.status();
     assert_eq!(submit_status, reqwest::StatusCode::ACCEPTED);
     let submit_response = parse_response_json::<SubmitResponse>(submit_response).await;
@@ -202,7 +224,12 @@ async fn wait_submission(client: &Client, port: u16, submission_id: Ulid) -> Res
     wait_submission_with_auth(client, port, submission_id, None).await
 }
 
-async fn wait_submission_with_auth(client: &Client, port: u16, submission_id: Ulid, auth_token: Option<&str>) -> Response {
+async fn wait_submission_with_auth(
+    client: &Client,
+    port: u16,
+    submission_id: Ulid,
+    auth_token: Option<&str>,
+) -> Response {
     loop {
         let response = get_submission_with_auth(&client, port, submission_id, auth_token).await;
         match response.status() {
