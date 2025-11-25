@@ -20,6 +20,7 @@ async fn main() -> Result<()> {
 
     // Initialize database
     risc_v_sim_web::database::init_database().await?;
+    let db_service = risc_v_sim_web::database::DatabaseService::new().await?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
@@ -40,6 +41,7 @@ async fn main() -> Result<()> {
             ticks_max: ticks_max,
             codesize_max: codesize_max,
             auth_state,
+            db_service,
         },
     )
     .await;

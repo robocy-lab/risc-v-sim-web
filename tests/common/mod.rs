@@ -13,7 +13,7 @@ where
     F: Future<Output = ()>,
 {
     init_test();
-    let mut cfg = default_config(test_name);
+    let mut cfg = default_config(test_name).await;
     patch_cfg(&mut cfg);
 
     let span = tracing::info_span!("test", test_name = test_name);
@@ -53,13 +53,18 @@ async fn make_listener() -> (u16, TcpListener) {
     (port, listener)
 }
 
-pub fn default_config(test_name: &str) -> risc_v_sim_web::Config {
-    // Set up test environment variables
+pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
     unsafe {
         std::env::set_var("GITHUB_CLIENT_ID", "test_client_id");
         std::env::set_var("GITHUB_CLIENT_SECRET", "test_client_secret");
         std::env::set_var("JWT_SECRET", "test_jwt_secret");
     }
+
+    let _ = risc_v_sim_web::database::init_database().await;
+
+    let db_service = risc_v_sim_web::database::DatabaseService::new()
+        .await
+        .unwrap();
 
     risc_v_sim_web::Config {
         as_binary: std::env::var("AS_BINARY")
@@ -75,6 +80,7 @@ pub fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         ticks_max: 15,
         codesize_max: 256,
         auth_state: risc_v_sim_web::auth::create_auth_state().unwrap(),
+        db_service,
     }
 }
 
@@ -139,7 +145,7 @@ pub async fn get_submission_with_auth(
 /// Creates a JWT token for testing
 pub fn create_test_jwt() -> String {
     let claims = risc_v_sim_web::auth::Claims {
-        sub: "test_user_123".to_string(),
+        sub: "12345".to_string(),
         login: "testuser".to_string(),
         name: Some("Test User".to_string()),
         exp: (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp(),

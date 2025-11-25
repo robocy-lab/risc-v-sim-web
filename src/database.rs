@@ -137,12 +137,34 @@ impl DatabaseService {
 
         Ok(submission)
     }
+
+    pub async fn create_submission_with_user(
+        &self,
+        uuid: String,
+        user_id: i64,
+    ) -> Result<ObjectId> {
+        let now = chrono::Utc::now();
+        let submission = SubmissionRecord {
+            id: None,
+            uuid,
+            user_id,
+            status: SubmissionStatus::Awaits,
+            created_at: now,
+            updated_at: now,
+        };
+
+        self.create_submission(submission).await
+    }
 }
 
 pub async fn init_database() -> Result<()> {
+    if DB.get().is_some() {
+        return Ok(());
+    }
+
     let db_service = DatabaseService::new().await?;
     DB.set(db_service.db)
-        .map_err(|_| anyhow::anyhow!("Database already initialized"))?;
+        .map_err(|_| anyhow::anyhow!("Failed to initialize database"))?;
     Ok(())
 }
 

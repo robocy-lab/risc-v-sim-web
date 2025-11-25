@@ -152,26 +152,88 @@ async fn ticks_from_field(field: Field<'_>) -> Result<u32> {
     Ok(ticks_str.parse()?)
 }
 
+fn extract_user_id_from_headers(headers: &HeaderMap, auth_state: &auth::AuthState) -> Result<i64> {
+    let auth_header = headers
+        .get("cookie")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| anyhow::anyhow!("No auth cookie found"))?;
+
+    let token = auth_header
+        .split("jwt=")
+        .nth(1)
+        .and_then(|s| s.split(';').next())
+        .ok_or_else(|| anyhow::anyhow!("No JWT token found in cookie"))?;
+
+    let token_data = jsonwebtoken::decode::<auth::Claims>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret(auth_state.jwt_secret.as_ref()),
+        &jsonwebtoken::Validation::default(),
+    )
+    .map_err(|_| anyhow::anyhow!("Invalid JWT token"))?;
+
+    let user_id = token_data
+        .claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| anyhow::anyhow!("Invalid user ID in token"))?;
+
+    Ok(user_id)
+}
+
 async fn simulate(
     config: &Config,
     ulid: Ulid,
     source_code: bytes::Bytes,
     ticks: u32,
 ) -> Result<serde_json::Value> {
+    let ulid_str = ulid.to_string();
+
+    if let Err(e) = config
+        .db_service
+        .update_submission_status(&ulid_str, database::SubmissionStatus::InProgress)
+        .await
+    {
+        error!("Failed to update submission status to InProgress: {e}");
+    }
+
     let submission_dir = submission_dir(config, ulid);
-    future_with_timeout(
+
+    if let Err(e) = future_with_timeout(
         Duration::from_secs(5),
         compile_s_to_elf(config, &source_code, &submission_dir),
     )
     .await
-    .context("compilation")?;
+    .context("compilation")
+    {
+        if let Err(db_err) = config
+            .db_service
+            .update_submission_status(&ulid_str, database::SubmissionStatus::Completed)
+            .await
+        {
+            error!("Failed to update submission status to Completed: {db_err}");
+        }
+        return Err(e);
+    }
 
-    let stdout = future_with_timeout(
+    let stdout = match future_with_timeout(
         Duration::from_secs(10),
         run_simulator(config, &submission_dir, ticks),
     )
     .await
-    .context("simulation")?;
+    .context("simulation")
+    {
+        Ok(stdout) => stdout,
+        Err(e) => {
+            if let Err(db_err) = config
+                .db_service
+                .update_submission_status(&ulid_str, database::SubmissionStatus::Completed)
+                .await
+            {
+                error!("Failed to update submission status to Completed: {db_err}");
+            }
+            return Err(e);
+        }
+    };
 
     let mut json = serde_json::from_str(&stdout).context("parse simulation output")?;
     if let serde_json::Value::Object(map) = &mut json {
@@ -182,6 +244,15 @@ async fn simulate(
             json!(String::from_utf8_lossy(&source_code)),
         );
     }
+
+    if let Err(e) = config
+        .db_service
+        .update_submission_status(&ulid_str, database::SubmissionStatus::Completed)
+        .await
+    {
+        error!("Failed to update submission status to Completed: {e}");
+    }
+
     Ok(json)
 }
 
@@ -197,8 +268,22 @@ async fn future_with_timeout<T>(
 
 async fn submit_handler(
     State(config): State<Arc<Config>>,
+    headers: HeaderMap,
     multipart: Multipart,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    let user_id = match extract_user_id_from_headers(&headers, &config.auth_state) {
+        Ok(id) => id,
+        Err(e) => {
+            info!("Unauthorized submit attempt: {e:#}");
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": "Authentication required",
+                })),
+            );
+        }
+    };
+
     let (ticks, source_code) = match parse_submit_inputs(multipart, config.as_ref())
         .await
         .context("parse input")
@@ -220,6 +305,20 @@ async fn submit_handler(
     );
 
     let ulid = Ulid::new();
+    let ulid_str = ulid.to_string();
+
+    if let Err(e) = config
+        .db_service
+        .create_submission_with_user(ulid_str.clone(), user_id)
+        .await
+    {
+        error!("Failed to create submission record: {e}");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json::from(serde_json::Value::Null),
+        );
+    }
+
     let submission_dir = submission_dir(&config, ulid);
     if let Err(e) = fs::create_dir_all(&submission_dir).await {
         error!("can't create {:#?}: {e}", submission_dir);
@@ -229,6 +328,7 @@ async fn submit_handler(
         );
     }
 
+    let source_code_clone = source_code.clone();
     tokio::spawn(
         async move {
             let res = simulate(&config, ulid, source_code, ticks)
@@ -236,6 +336,9 @@ async fn submit_handler(
                 .unwrap_or_else(|e| {
                     error!("Simulation task failed: {e:?}");
                     serde_json::json!({
+                        "ulid": ulid.to_string(),
+                        "ticks": ticks,
+                        "code": String::from_utf8_lossy(&source_code_clone),
                         "error": format!("{e:?}"),
                     })
                 });
@@ -342,6 +445,7 @@ pub struct Config {
     pub ticks_max: u32,
     pub codesize_max: u32,
     pub auth_state: auth::AuthState,
+    pub db_service: database::DatabaseService,
 }
 
 pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
@@ -398,12 +502,14 @@ mod tests {
     use super::*;
     use std::u32;
 
-    fn create_test_config() -> Config {
+    async fn create_test_config() -> Config {
         unsafe {
             std::env::set_var("GITHUB_CLIENT_ID", "test_client_id");
             std::env::set_var("GITHUB_CLIENT_SECRET", "test_client_secret");
             std::env::set_var("JWT_SECRET", "test_jwt_secret");
         }
+
+        let db_service = database::DatabaseService::new().await.unwrap();
 
         Config {
             as_binary: "dummy".into(),
@@ -413,6 +519,7 @@ mod tests {
             ticks_max: u32::MAX,
             codesize_max: u32::MAX,
             auth_state: auth::create_auth_state().unwrap(),
+            db_service,
         }
     }
 
@@ -422,9 +529,9 @@ mod tests {
         assert_eq!(response, "Ok");
     }
 
-    #[test]
-    fn test_path_utils() {
-        let config = create_test_config();
+    #[tokio::test]
+    async fn test_path_utils() {
+        let config = create_test_config().await;
         for _ in 0..10 {
             let ulid = Ulid::new();
             let dir = submission_dir(&config, ulid);
@@ -445,9 +552,9 @@ mod tests {
         assert!(auth_state.is_ok());
     }
 
-    #[test]
-    fn test_jwt_creation_and_validation() {
-        let config = create_test_config();
+    #[tokio::test]
+    async fn test_jwt_creation_and_validation() {
+        let config = create_test_config().await;
 
         let claims = auth::Claims {
             sub: "123".to_string(),
