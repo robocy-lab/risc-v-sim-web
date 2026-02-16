@@ -8,8 +8,8 @@ env:
   RUST_BACKTRACE: "1"
   RUST_VERSION: "1.89.0"
 
-jobs:    
-  capture-traces: 
+jobs:
+  capture-traces:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,7 @@ jobs:
           path: ./riscv-samples/traces/*.json
   run-tests:
     runs-on: ubuntu-24.04
+    container: krinkin/rv64-toolchain
     needs: [capture-traces]
     services:
       mongodb:
@@ -53,23 +54,56 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      MONGODB_URI: mongodb://localhost:27017
       MONGODB_DB: riscv_sim_test
     steps:
+      # Required by the openssl crate
+      # https://docs.rs/openssl/latest/openssl/#automatic
+      - name: Install OpenSSL and pkgconf
+        run: | 
+          apt-get update 
+          apt-get install -y pkg-config libssl-dev
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+      - uses: actions/cache@v4
+        id: cache-build
+        continue-on-error: false
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.rustup
+            target/
+          key: ci-integration-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ci-integration-cargo-
+      - name: Download Rust toolchain and build
+        if: steps.cache-build.outputs.cache-hit != 'true'
+        run: |
+          apt-get update
+          apt-get install -y curl
+          curl -O https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init
+          chmod +x rustup-init
+          ./rustup-init -y --no-modify-path --default-toolchain $RUST_VERSION
+      - name: Build RiscV sim
+        run: |
+          export PATH=~/.cargo/bin:$PATH
+          cd risc-v-sim
+          cargo build
       - name: Download traces
         uses: actions/download-artifact@v4
         with:
           name: traces
           path: traces
-      - name: Build dockerfile
-        run: |
-          docker build -t meow .
       - name: Run integration tests
         run: |
-          docker run --entrypoint "" --network=host meow cargo test --test "*" --locked -- --show-output
-      - name: Check logs on failure
-        if: failure()
-        run: docker logs $(docker ps -a -q --filter "ancestor=meow" -n 1)
+          export PATH=~/.cargo/bin:$PATH
+          export SIMULATOR_BINARY=./risc-v-sim/target/debug/risc-v-sim
+          export AS_BINARY=riscv64-linux-gnu-as
+          export LD_BINARY=riscv64-linux-gnu-ld
+          export MONGODB_URI=mongodb://mongodb:27017
+          cargo test --test "*" --locked -- --show-output
