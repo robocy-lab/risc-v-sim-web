@@ -65,9 +65,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
-      - uses: actions/checkout@v4
-        with:
-          submodules: 'true'
       - uses: actions/cache@v4
         id: cache-build
         continue-on-error: false
