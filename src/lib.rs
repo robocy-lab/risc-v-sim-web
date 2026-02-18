@@ -193,8 +193,8 @@ async fn user_submissions_handler(
     }
 }
 
-pub async fn me_handler(Extension(user): Extension<User>) -> Result<Json<User>, StatusCode> {
-    Ok(Json(user))
+pub async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
+    Json(user)
 }
 
 pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {

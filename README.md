@@ -31,7 +31,8 @@ cp .env.example .env
 
 5. Start the application:
 ```bash
-docker-compose up -d
+docker build -t meow .
+docker run meow
 ```
 
 The application will be available at http://localhost:3000

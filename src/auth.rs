@@ -84,7 +84,7 @@ pub async fn login_handler(
     Ok(Redirect::to(auth_url.as_str()))
 }
 
-pub async fn logout_handler(_config: State<Arc<crate::Config>>) -> (CookieJar, Redirect) {
+pub async fn logout_handler() -> (CookieJar, Redirect) {
     let mut cookie = Cookie::new("jwt", "");
     cookie.set_path("/");
     cookie.make_removal();
