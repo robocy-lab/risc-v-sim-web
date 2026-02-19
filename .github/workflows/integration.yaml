@@ -10,7 +10,7 @@ env:
 
 jobs:
   capture-traces:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, lab-server-runner]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,7 +38,7 @@ jobs:
           name: traces
           path: ./riscv-samples/traces/*.json
   run-tests:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, lab-server-runner]
     container: krinkin/rv64-toolchain
     needs: [capture-traces]
     services:

@@ -6,7 +6,7 @@ on:
 
 jobs:
   img-check:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, lab-server-runner]
     services:
       mongodb:
         image: mongo:7
