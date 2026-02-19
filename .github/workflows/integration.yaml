@@ -12,6 +12,8 @@ jobs:
   capture-traces:
     runs-on: [self-hosted, lab-server-runner]
     steps:
+      - name: Fix permissions
+        run: sudo chown -R $(whoami) .
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
@@ -56,6 +58,8 @@ jobs:
     env:
       MONGODB_DB: riscv_sim_test
     steps:
+      - name: Fix permissions
+        run: sudo chown -R $(whoami) .
       # Required by the openssl crate
       # https://docs.rs/openssl/latest/openssl/#automatic
       - name: Install OpenSSL and pkgconf

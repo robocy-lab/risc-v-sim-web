@@ -26,6 +26,8 @@ jobs:
       GITHUB_CLIENT_SECRET: test_client_secret
       JWT_SECRET: test_jwt_secret_for_health_check
     steps:
+      - name: Fix permissions
+        run: sudo chown -R $(whoami) .
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
