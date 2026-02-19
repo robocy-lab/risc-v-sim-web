@@ -12,7 +12,7 @@ jobs:
     runs-on: [self-hosted, lab-server-runner]
     steps:
       - name: Fix permissions
-        run: sudo chown -R $(whoami) .
+        run: chown -R $(whoami) .
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         continue-on-error: false
@@ -30,7 +30,7 @@ jobs:
     runs-on: [self-hosted, lab-server-runner]
     steps:
       - name: Fix permissions
-        run: sudo chown -R $(whoami) .
+        run: chown -R $(whoami) .
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         continue-on-error: false
@@ -49,7 +49,7 @@ jobs:
     runs-on: [self-hosted, lab-server-runner]
     steps:
       - name: Fix permissions
-        run: sudo chown -R $(whoami) .
+        run: chown -R $(whoami) .
       - uses: actions/checkout@v4
       - name: Install cargo fmt
         run: rustup component add rustfmt
@@ -58,7 +58,7 @@ jobs:
     runs-on: [self-hosted, lab-server-runner]
     steps:
       - name: Fix permissions
-        run: sudo chown -R $(whoami) .
+        run: chown -R $(whoami) .
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         continue-on-error: false
