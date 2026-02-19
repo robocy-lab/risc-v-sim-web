@@ -1,4 +1,6 @@
-mod submission_actor;
+pub mod auth;
+pub mod database;
+pub mod submission_actor;
 
 use anyhow::{Context, Result, bail};
 use axum::{
@@ -6,6 +8,7 @@ use axum::{
     body::Body,
     extract::{Multipart, Query, State, multipart::Field},
     http::{Request, StatusCode},
+    middleware::{self},
     response::Json,
     routing::{get, post},
 };
@@ -14,18 +17,25 @@ use serde::Deserialize;
 use serde_json::json;
 use std::io::ErrorKind;
 use std::sync::Arc;
-use tokio::join;
 use tokio::sync::mpsc::Sender;
-use tokio::{fs, net::TcpListener};
+use tokio::{fs, join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{Instrument, debug, error, info_span};
 use ulid::Ulid;
 
-pub use submission_actor::Config;
-use submission_actor::submission_file;
+use crate::auth::User;
+use crate::database::DatabaseService;
+use auth::{AuthConfig, auth_middleware};
+use submission_actor::{
+    Config as ActorConfig, SubmissionTask, run_submission_actor, submission_file,
+};
 
-use crate::submission_actor::{SubmissionTask, run_submission_actor};
+pub struct Config {
+    pub actor_config: ActorConfig,
+    pub auth_config: AuthConfig,
+    pub db_service: Arc<DatabaseService>,
+}
 
 #[derive(Deserialize)]
 pub struct Submission {
@@ -60,11 +70,11 @@ pub async fn parse_submit_inputs(
     let Some(file) = file else {
         bail!("file field not set")
     };
-    if ticks > config.ticks_max {
-        bail!("ticks number exceeds {}", config.ticks_max)
+    if ticks > config.actor_config.ticks_max {
+        bail!("ticks number exceeds {}", config.actor_config.ticks_max)
     }
-    if file.len() > config.codesize_max as usize {
-        bail!("file length exceeds {}", config.codesize_max)
+    if file.len() > config.actor_config.codesize_max as usize {
+        bail!("file length exceeds {}", config.actor_config.codesize_max)
     }
     Ok((ticks, file))
 }
@@ -77,8 +87,11 @@ async fn ticks_from_field(field: Field<'_>) -> Result<u32> {
 async fn submit_handler(
     State(config): State<Arc<Config>>,
     Extension(task_send): Extension<Sender<SubmissionTask>>,
+    Extension(user): Extension<User>,
     multipart: Multipart,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    let user_id = user.id;
+    let user_login = user.login;
     let (ticks, source_code) = match parse_submit_inputs(multipart, config.as_ref())
         .await
         .context("parse input")
@@ -88,7 +101,7 @@ async fn submit_handler(
             debug!("Bad request: {e:#}");
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
+                Json(json!({
                     "error": format!("{e:#}"),
                 })),
             );
@@ -100,15 +113,17 @@ async fn submit_handler(
     );
 
     let ulid = Ulid::new();
+    debug!("Creating submission for user {} ({})", user_login, user_id);
     let send_res = task_send
         .send(SubmissionTask {
             source_code,
             ticks,
             ulid,
+            user_id,
         })
         .await;
     if let Err(e) = send_res {
-        error!("Failed to submit taks: {e}");
+        error!("Failed to submit task: {e}");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -130,18 +145,18 @@ async fn submission_handler(
     State(config): State<Arc<Config>>,
     submission: Query<Submission>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    let submission = submission_file(&config, submission.ulid);
+    let submission = submission_file(&config.actor_config, submission.ulid);
     let content = match fs::read(submission).await {
         Ok(x) => x,
         Err(e) => {
-            if e.kind() == ErrorKind::NotFound {
-                return (StatusCode::NOT_FOUND, Json(serde_json::Value::Null));
+            return if e.kind() == ErrorKind::NotFound {
+                (StatusCode::NOT_FOUND, Json(serde_json::Value::Null))
             } else {
-                return (
+                (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::Value::Null),
-                );
-            }
+                )
+            };
         }
     };
     let json_content = Json::from_bytes(&content);
@@ -155,22 +170,61 @@ async fn submission_handler(
     (StatusCode::OK, json_content.unwrap())
 }
 
+async fn user_submissions_handler(
+    State(config): State<Arc<Config>>,
+    Extension(user): Extension<User>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    match config.db_service.get_user_submissions(user.id).await {
+        Ok(submissions) => (
+            StatusCode::OK,
+            Json(json!({
+                "submissions": submissions
+            })),
+        ),
+        Err(e) => {
+            error!("Failed to fetch user submissions: {:#?}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Failed to fetch submissions"
+                })),
+            )
+        }
+    }
+}
+
+pub async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
+    Json(user)
+}
+
 pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
     let config = Arc::new(cfg);
 
-    let submission_actor =
-        run_submission_actor(config.clone(), task_recv).instrument(info_span!("submission_actor"));
+    let submission_actor = run_submission_actor(
+        Arc::new(config.actor_config.clone()),
+        config.db_service.clone(),
+        task_recv,
+    )
+    .instrument(info_span!("submission_actor"));
+
     let router = Router::new()
         .nest(
             "/api",
             Router::new()
-                .route("/health", get(health_handler))
                 .route("/submit", post(submit_handler))
                 .route("/submission", get(submission_handler))
+                .route("/user-submissions", get(user_submissions_handler))
+                .route("/me", get(me_handler))
                 .layer(Extension(task_send))
-                .with_state(config.clone()),
+                .with_state(config.clone())
+                .layer(middleware::from_fn_with_state(
+                    config.clone(),
+                    auth_middleware,
+                )),
         )
+        .nest("/auth", auth::auth_routes().with_state(config.clone()))
+        .route("/health", get(health_handler))
         .fallback_service(ServeDir::new("static"))
         .layer(ServiceBuilder::new().layer(tower_http::cors::CorsLayer::permissive()))
         .layer(

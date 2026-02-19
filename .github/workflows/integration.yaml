@@ -8,8 +8,8 @@ env:
   RUST_BACKTRACE: "1"
   RUST_VERSION: "1.89.0"
 
-jobs:    
-  capture-traces: 
+jobs:
+  capture-traces:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,21 @@ jobs:
     runs-on: ubuntu-24.04
     container: krinkin/rv64-toolchain
     needs: [capture-traces]
-    steps:    
+    services:
+      mongodb:
+        image: mongo:7
+        env:
+          MONGO_INITDB_DATABASE: riscv_sim_test
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MONGODB_DB: riscv_sim_test
+    steps:
       # Required by the openssl crate
       # https://docs.rs/openssl/latest/openssl/#automatic
       - name: Install OpenSSL and pkgconf
@@ -82,10 +96,11 @@ jobs:
         with:
           name: traces
           path: traces
-      - name: Run tests
+      - name: Run integration tests
         run: |
           export PATH=~/.cargo/bin:$PATH
           export SIMULATOR_BINARY=./risc-v-sim/target/debug/risc-v-sim
           export AS_BINARY=riscv64-linux-gnu-as
           export LD_BINARY=riscv64-linux-gnu-ld
+          export MONGODB_URI=mongodb://mongodb:27017
           cargo test --test "*" --locked -- --show-output

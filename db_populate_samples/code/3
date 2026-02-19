@@ -1,0 +1,12 @@
+.text
+.globl _start
+
+_start:
+    la x10, data
+    li x11, 42
+    sw x11, 0(x10)
+    lw x12, 0(x10)
+    ebreak
+
+.data
+data: .word 0

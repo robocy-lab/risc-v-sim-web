@@ -1,10 +1,12 @@
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use serde_json::json;
+use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
 use tokio::fs;
 
+use crate::database::{DatabaseService, SubmissionStatus};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -14,12 +16,15 @@ use tokio::time::timeout;
 use tracing::{Instrument, debug, error, info, info_span};
 use ulid::{ULID_LEN, Ulid};
 
+#[derive(Debug)]
 pub struct SubmissionTask {
     pub source_code: Bytes,
     pub ticks: u32,
     pub ulid: Ulid,
+    pub user_id: i64,
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub as_binary: PathBuf,
     pub ld_binary: PathBuf,
@@ -29,12 +34,16 @@ pub struct Config {
     pub codesize_max: u32,
 }
 
-pub async fn run_submission_actor(config: Arc<Config>, mut tasks: Receiver<SubmissionTask>) {
+pub async fn run_submission_actor(
+    config: Arc<Config>,
+    db_service: Arc<DatabaseService>,
+    mut tasks: Receiver<SubmissionTask>,
+) {
     while let Some(task) = tasks.recv().await {
         let ulid = task.ulid;
         debug!("Received task {ulid}");
         tokio::spawn(
-            submission_task(config.clone(), task)
+            submission_task(config.clone(), db_service.clone(), task)
                 .instrument(info_span!("submission_task", ulid=%ulid)),
         );
     }
@@ -82,40 +91,76 @@ async fn simulate(
     Ok(json)
 }
 
-async fn submission_task(config: Arc<Config>, task: SubmissionTask) {
-    let sub_dir = submission_dir(&config, task.ulid);
-    if let Err(e) = fs::create_dir_all(sub_dir).await {
-        error!("can't create submissiond_dir: {e:#}");
+async fn submission_task(
+    config: Arc<Config>,
+    db_service: Arc<DatabaseService>,
+    task: SubmissionTask,
+) {
+    let ulid_str = task.ulid.to_string();
+    info!("Processing submission {}", ulid_str);
+
+    if let Err(e) = db_service
+        .create_submission_with_user(ulid_str.clone(), task.user_id)
+        .await
+    {
+        error!("Failed to create submission record in database: {e:#}");
         return;
+    }
+
+    let sub_dir = submission_dir(&config, task.ulid);
+    if let Err(e) = fs::create_dir_all(&sub_dir).await {
+        error!("can't create submission_dir: {e:#}");
+        return;
+    }
+
+    if let Err(e) = db_service
+        .update_submission_status(&ulid_str, SubmissionStatus::InProgress)
+        .await
+    {
+        error!("Failed to update submission status to InProgress: {e:#}");
     }
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
     let file_path = submission_file(config.as_ref(), task.ulid);
 
-    let to_write = match sim_res {
+    let (final_status, to_write) = match sim_res {
         Ok(mut json) => {
-            // Ensure ulid is always present
             if let serde_json::Value::Object(map) = &mut json {
                 if !map.contains_key("ulid") {
                     map.insert("ulid".to_string(), json!(task.ulid));
                 }
             }
-            json
+            (SubmissionStatus::Completed, json)
         }
         Err(e) => {
             error!("simulation failed: {e:#}");
-            json!({
-                "error": format!("{e:?}"),
-                "ulid": task.ulid,
-                "ticks": task.ticks,
-                "code": String::from_utf8_lossy(&task.source_code)
-            })
+            (
+                SubmissionStatus::Completed,
+                serde_json::json!({
+                    "error": format!("{e:?}"),
+                    "ulid": task.ulid,
+                    "ticks": task.ticks,
+                    "code": String::from_utf8_lossy(&task.source_code)
+                }),
+            )
         }
     };
 
     if let Err(write_err) = fs::write(&file_path, to_write.to_string()).await {
         error!("failed to write submission task result: {write_err:#}");
     }
+
+    if let Err(e) = db_service
+        .update_submission_status(&ulid_str, final_status)
+        .await
+    {
+        error!("Failed to update final submission status: {e:#}");
+    }
+
+    info!(
+        "Completed submission {} with status {:?}",
+        ulid_str, final_status
+    );
 }
 
 pub fn submission_dir(config: &Config, ulid: Ulid) -> PathBuf {

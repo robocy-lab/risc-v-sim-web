@@ -1,7 +1,9 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::Path;
 
+use jsonwebtoken::{EncodingKey, Header, encode};
 use reqwest::{Client, Response, Url};
+use time::{Duration, UtcDateTime};
 use tokio::{net::TcpListener, task::JoinHandle};
 use tracing::{Instrument, Level, Span, info};
 use ulid::Ulid;
@@ -13,7 +15,7 @@ where
     F: Future<Output = ()>,
 {
     init_test();
-    let mut cfg = default_config(test_name);
+    let mut cfg = default_config(test_name).await;
     patch_cfg(&mut cfg);
 
     let span = tracing::info_span!("test", test_name = test_name);
@@ -44,7 +46,7 @@ pub async fn spawn_server(span: &Span, cfg: risc_v_sim_web::Config) -> (u16, Joi
 async fn make_listener() -> (u16, TcpListener) {
     // NOTE: we specifically create a listener on the same thread and make the
     //       caller wait. This is because we want to make sure the server properly
-    //       reserves the port. Otherwise the caller's HTTP requests will race
+    //       reserves the port. Otherwise, the caller's HTTP requests will race
     //       and get a "connection refused" response.
     let address = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
     let listener = tokio::net::TcpListener::bind(address).await.unwrap();
@@ -53,24 +55,58 @@ async fn make_listener() -> (u16, TcpListener) {
     (port, listener)
 }
 
-pub fn default_config(test_name: &str) -> risc_v_sim_web::Config {
+pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
+    let jwt_secret = "test_secret_key_for_integration_tests";
+    let auth_state = risc_v_sim_web::auth::AuthConfig {
+        oauth_client: oauth2::Client::new(
+            oauth2::ClientId::new("test_client_id".to_string()),
+            Some(oauth2::ClientSecret::new("test_client_secret".to_string())),
+            oauth2::AuthUrl::new("https://example.com/auth".to_string()).unwrap(),
+            Some(oauth2::TokenUrl::new("https://example.com/token".to_string()).unwrap()),
+        ),
+        jwt_secret: jwt_secret.to_string(),
+    };
+
+    let db_service = risc_v_sim_web::database::DatabaseService::new()
+        .await
+        .unwrap();
+
     risc_v_sim_web::Config {
-        as_binary: std::env::var("AS_BINARY")
-            .unwrap_or_else(|_| "riscv64-elf-as".to_string())
-            .into(),
-        ld_binary: std::env::var("LD_BINARY")
-            .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
-            .into(),
-        simulator_binary: std::env::var("SIMULATOR_BINARY")
-            .unwrap_or_else(|_| "simulator".to_string())
-            .into(),
-        submissions_folder: format!("submissions-{test_name}").into(),
-        ticks_max: 15,
-        codesize_max: 256,
+        actor_config: risc_v_sim_web::submission_actor::Config {
+            as_binary: std::env::var("AS_BINARY")
+                .unwrap_or_else(|_| "riscv64-elf-as".to_string())
+                .into(),
+            ld_binary: std::env::var("LD_BINARY")
+                .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
+                .into(),
+            simulator_binary: std::env::var("SIMULATOR_BINARY")
+                .unwrap_or_else(|_| "simulator".to_string())
+                .into(),
+            submissions_folder: format!("submissions-{test_name}").into(),
+            ticks_max: 15,
+            codesize_max: 256,
+        },
+        auth_config: auth_state,
+        db_service: std::sync::Arc::new(db_service),
     }
 }
 
-#[allow(dead_code)]
+pub fn generate_test_token(user_id: &str, login: &str, jwt_secret: &str) -> String {
+    let claims = risc_v_sim_web::auth::Claims {
+        sub: user_id.to_string(),
+        login: login.to_string(),
+        name: Some("Test User".to_string()),
+        exp: (UtcDateTime::now() + Duration::hours(24)).unix_timestamp(),
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(jwt_secret.as_ref()),
+    )
+    .unwrap()
+}
+
 pub async fn submit_program(
     client: &Client,
     port: u16,
@@ -78,6 +114,13 @@ pub async fn submit_program(
     path: impl AsRef<Path>,
 ) -> Response {
     let request_url = server_url(port).join("api/submit").unwrap();
+    let token = generate_test_token(
+        "123456",
+        "testuser",
+        "test_secret_key_for_integration_tests",
+    );
+    let cookie = format!("jwt={}", token);
+
     let form = reqwest::multipart::Form::new()
         .text("ticks", ticks.to_string())
         .file("file", path)
@@ -85,6 +128,7 @@ pub async fn submit_program(
         .unwrap();
     client
         .post(request_url)
+        .header("Cookie", cookie)
         .multipart(form)
         .send()
         .await
@@ -94,15 +138,23 @@ pub async fn submit_program(
 #[allow(dead_code)]
 pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> Response {
     let request_url = server_url(port).join("api/submission").unwrap();
+    let token = generate_test_token(
+        "123456",
+        "testuser",
+        "test_secret_key_for_integration_tests",
+    );
+    let cookie = format!("jwt={}", token);
+
     client
         .get(request_url)
         .query(&[("ulid", &submission_id.to_string())])
+        .header("Cookie", cookie)
         .send()
         .await
         .unwrap()
 }
 
-/// Returns the server url.
+#[allow(dead_code)]
 pub fn server_url(port: u16) -> Url {
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     Url::parse(&format!("http://{addr}")).unwrap()

@@ -6,13 +6,37 @@ on:
 
 jobs:
   img-check:
-    runs-on: ubuntu-24.04  
+    runs-on: ubuntu-24.04
+    services:
+      mongodb:
+        image: mongo:7
+        env:
+          MONGO_INITDB_DATABASE: riscv_sim_test
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "echo 'db.runCommand(\"ping\").ok' | mongosh localhost:27017/test --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MONGODB_URI: mongodb://localhost:27017
+      MONGODB_DB: riscv_sim_test
+      GITHUB_CLIENT_ID: test_client_id
+      GITHUB_CLIENT_SECRET: test_client_secret
+      JWT_SECRET: test_jwt_secret_for_health_check
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: 'true'
       - run: docker build -t risc-v-sim-web-test .
       - run: |
-          docker run --rm -d -p 3000:3000 risc-v-sim-web-test
-          sleep 5
-          curl -f http://localhost:3000/api/health || exit 1
+          docker run --rm -d --network host \
+            -e MONGODB_URI \
+            -e MONGODB_DB \
+            -e GITHUB_CLIENT_ID \
+            -e GITHUB_CLIENT_SECRET \
+            -e JWT_SECRET \
+            risc-v-sim-web-test
+          sleep 10
+          curl -f http://localhost:3000/health || exit 1

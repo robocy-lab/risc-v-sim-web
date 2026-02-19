@@ -1,0 +1,14 @@
+serde_json::json!({
+  "instruction": {
+    "mnemonic": "add",
+    "obj": {"Add": [7, 5, 6]}
+  },
+  "old_registers": {
+    "pc": 1342177288,
+    "storage": [0, 0, 0, 0, 0, 10, 20, 0, 0, 0]
+  },
+  "new_registers": {
+    "pc": 1342177292,
+    "storage": [0, 0, 0, 0, 0, 10, 20, 30, 0, 0]
+  }
+})
