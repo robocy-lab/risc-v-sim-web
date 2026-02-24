@@ -107,6 +107,7 @@ pub fn generate_test_token(user_id: &str, login: &str, jwt_secret: &str) -> Stri
     .unwrap()
 }
 
+#[allow(dead_code)]
 pub async fn submit_program(
     client: &Client,
     port: u16,
