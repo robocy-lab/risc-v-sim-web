@@ -107,7 +107,7 @@ pub async fn oauth_callback_handler(
         .request_async(async_http_client)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to exchange code for token: {:?}", e);
+            tracing::error!(error=%e, "Failed to exchange code for token");
             StatusCode::BAD_REQUEST
         })?;
 
@@ -122,12 +122,12 @@ pub async fn oauth_callback_handler(
         .send()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch user from GitHub: {:?}", e);
+            tracing::error!(error=%e, "Failed to fetch user from GitHub");
             StatusCode::BAD_REQUEST
         })?;
 
     let user_data: serde_json::Value = user_response.json().await.map_err(|e| {
-        tracing::error!("Failed to parse GitHub user response: {:?}", e);
+        tracing::error!(error=%e, "Failed to parse GitHub user response");
         StatusCode::BAD_REQUEST
     })?;
 
@@ -148,7 +148,7 @@ pub async fn oauth_callback_handler(
         &EncodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
     )
     .map_err(|e| {
-        tracing::error!("Failed to create JWT token: {:?}", e);
+        tracing::error!(error=%e, "Failed to create JWT token");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -191,7 +191,7 @@ pub async fn auth_middleware(
                 next.run(request).await
             }
             Err(e) => {
-                tracing::debug!("Invalid JWT token: {:?}", e);
+                tracing::debug!(error=%e, "Invalid JWT token");
                 (
                     StatusCode::UNAUTHORIZED,
                     Json(serde_json::json!({"error": "Invalid authorization token"})),
@@ -201,7 +201,7 @@ pub async fn auth_middleware(
         };
     }
 
-    tracing::debug!("Unauthorized access attempt to {}", path);
+    tracing::debug!(path = path, "Unauthorized access");
     (
         StatusCode::UNAUTHORIZED,
         Json(serde_json::json!({"error": "Authentication required"})),

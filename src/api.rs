@@ -72,11 +72,12 @@ async fn submit_handler(
         .context("parse")
         .map_err(ApiError::bad_request)?;
     tracing::debug!(
-        "Received {} bytes of program code to run for {ticks} ticks",
-        source_code.len()
+        user_id=user_id,
+        user_login=user_login,
+        submission_id=%ulid,
+        size=source_code.len(),
+        "New submission",
     );
-
-    tracing::debug!("Creating submission for user {user_login:?} ({user_id})");
     task_send
         .send(SubmissionTask {
             source_code,
