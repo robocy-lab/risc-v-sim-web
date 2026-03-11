@@ -186,6 +186,14 @@ impl ApiError {
             cause: anyhow::anyhow!("Submission not found"),
         }
     }
+
+    pub fn unauthorized() -> Self {
+        ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthorized",
+            cause: anyhow::anyhow!("Unauthorized access"),
+        }
+    }
 }
 
 impl IntoResponse for ApiError {

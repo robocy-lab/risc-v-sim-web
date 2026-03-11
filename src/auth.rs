@@ -4,7 +4,7 @@ use axum::{
     extract::{Query, Request, State},
     http::StatusCode,
     middleware::Next,
-    response::{IntoResponse, Json, Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use axum_extra::extract::CookieJar;
@@ -17,6 +17,8 @@ use oauth2::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::{Duration, UtcDateTime};
+
+use crate::api::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -182,7 +184,7 @@ pub async fn auth_middleware(
         }
         Err(e) => {
             tracing::debug!(path = path, "Unauthorized access");
-            e
+            e.into_response()
         }
     }
 }
@@ -190,15 +192,9 @@ pub async fn auth_middleware(
 fn get_user_from_cookies(
     auth_config: &AuthConfig,
     cookie_jar: &CookieJar,
-) -> Result<User, Response> {
-    let err_anauthorized = (
-        StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({"error": "Authentication required"})),
-    )
-        .into_response();
-
+) -> Result<User, ApiError> {
     let Some(token) = cookie_jar.get("jwt") else {
-        return Err(err_anauthorized);
+        return Err(ApiError::unauthorized());
     };
 
     let claims_result = decode::<Claims>(
@@ -214,7 +210,7 @@ fn get_user_from_cookies(
         }),
         Err(e) => {
             tracing::debug!(error=%e, "Invalid JWT token");
-            Err(err_anauthorized)
+            return Err(ApiError::unauthorized());
         }
     }
 }
