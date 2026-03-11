@@ -175,36 +175,46 @@ pub async fn auth_middleware(
 ) -> Response {
     let path = request.uri().path();
 
-    let token = cookie_jar.get("jwt");
-    if let Some(token) = token {
-        return match decode::<Claims>(
-            token.value(),
-            &DecodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
-            &Validation::default(),
-        ) {
-            Ok(token_data) => {
-                request.extensions_mut().insert(User {
-                    id: token_data.claims.sub.parse().unwrap_or(0),
-                    login: token_data.claims.login,
-                    name: token_data.claims.name,
-                });
-                next.run(request).await
-            }
-            Err(e) => {
-                tracing::debug!(error=%e, "Invalid JWT token");
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({"error": "Invalid authorization token"})),
-                )
-                    .into_response()
-            }
-        };
+    match get_user_from_cookies(&config.auth_config, &cookie_jar) {
+        Ok(user) => {
+            request.extensions_mut().insert(user);
+            next.run(request).await
+        }
+        Err(e) => {
+            tracing::debug!(path = path, "Unauthorized access");
+            e
+        }
     }
+}
 
-    tracing::debug!(path = path, "Unauthorized access");
-    (
+fn get_user_from_cookies(
+    auth_config: &AuthConfig,
+    cookie_jar: &CookieJar,
+) -> Result<User, Response> {
+    let err_anauthorized = (
         StatusCode::UNAUTHORIZED,
         Json(serde_json::json!({"error": "Authentication required"})),
     )
-        .into_response()
+        .into_response();
+
+    let Some(token) = cookie_jar.get("jwt") else {
+        return Err(err_anauthorized);
+    };
+
+    let claims_result = decode::<Claims>(
+        token.value(),
+        &DecodingKey::from_secret(auth_config.jwt_secret.as_bytes()),
+        &Validation::default(),
+    );
+    match claims_result {
+        Ok(token_data) => Ok(User {
+            id: token_data.claims.sub.parse().unwrap_or(0),
+            login: token_data.claims.login,
+            name: token_data.claims.name,
+        }),
+        Err(e) => {
+            tracing::debug!(error=%e, "Invalid JWT token");
+            Err(err_anauthorized)
+        }
+    }
 }
