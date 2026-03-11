@@ -134,7 +134,7 @@ async fn submit_handler(
     debug!("Submitted task with ulid {ulid}");
 
     (
-        StatusCode::ACCEPTED,
+        StatusCode::OK,
         Json(json!({
             "ulid": ulid
         })),
