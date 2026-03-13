@@ -41,7 +41,7 @@ async fn submit_simple() {
                 Ok(x) => format!("Response as text: {x}"),
                 Err(e) => format!("Response has no text: {e}"),
             };
-            assert_eq!(submit_status, reqwest::StatusCode::ACCEPTED, "{resp_text}");
+            assert_eq!(submit_status, reqwest::StatusCode::OK, "{resp_text}");
         },
     )
     .await;
@@ -157,7 +157,7 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
 
     let submit_response = submit_program(&client, port, ticks, &source_path).await;
     let submit_status = submit_response.status();
-    assert_eq!(submit_status, reqwest::StatusCode::ACCEPTED);
+    assert_eq!(submit_status, reqwest::StatusCode::OK);
     let submit_response = parse_response_json::<SubmitResponse>(submit_response).await;
     info!("Got submission id: {}", submit_response.ulid);
 

@@ -4,7 +4,7 @@ use axum::{
     extract::{Query, Request, State},
     http::StatusCode,
     middleware::Next,
-    response::{IntoResponse, Json, Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use axum_extra::extract::CookieJar;
@@ -17,6 +17,8 @@ use oauth2::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::{Duration, UtcDateTime};
+
+use crate::api::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -107,7 +109,7 @@ pub async fn oauth_callback_handler(
         .request_async(async_http_client)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to exchange code for token: {:?}", e);
+            tracing::error!(error=%e, "Failed to exchange code for token");
             StatusCode::BAD_REQUEST
         })?;
 
@@ -122,12 +124,12 @@ pub async fn oauth_callback_handler(
         .send()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch user from GitHub: {:?}", e);
+            tracing::error!(error=%e, "Failed to fetch user from GitHub");
             StatusCode::BAD_REQUEST
         })?;
 
     let user_data: serde_json::Value = user_response.json().await.map_err(|e| {
-        tracing::error!("Failed to parse GitHub user response: {:?}", e);
+        tracing::error!(error=%e, "Failed to parse GitHub user response");
         StatusCode::BAD_REQUEST
     })?;
 
@@ -148,7 +150,7 @@ pub async fn oauth_callback_handler(
         &EncodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
     )
     .map_err(|e| {
-        tracing::error!("Failed to create JWT token: {:?}", e);
+        tracing::error!(error=%e, "Failed to create JWT token");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -175,36 +177,40 @@ pub async fn auth_middleware(
 ) -> Response {
     let path = request.uri().path();
 
-    let token = cookie_jar.get("jwt");
-    if let Some(token) = token {
-        return match decode::<Claims>(
-            token.value(),
-            &DecodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
-            &Validation::default(),
-        ) {
-            Ok(token_data) => {
-                request.extensions_mut().insert(User {
-                    id: token_data.claims.sub.parse().unwrap_or(0),
-                    login: token_data.claims.login,
-                    name: token_data.claims.name,
-                });
-                next.run(request).await
-            }
-            Err(e) => {
-                tracing::debug!("Invalid JWT token: {:?}", e);
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({"error": "Invalid authorization token"})),
-                )
-                    .into_response()
-            }
-        };
+    match get_user_from_cookies(&config.auth_config, &cookie_jar) {
+        Ok(user) => {
+            request.extensions_mut().insert(user);
+            next.run(request).await
+        }
+        Err(e) => {
+            tracing::debug!(path = path, "Unauthorized access");
+            e.into_response()
+        }
     }
+}
 
-    tracing::debug!("Unauthorized access attempt to {}", path);
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({"error": "Authentication required"})),
-    )
-        .into_response()
+fn get_user_from_cookies(
+    auth_config: &AuthConfig,
+    cookie_jar: &CookieJar,
+) -> Result<User, ApiError> {
+    let Some(token) = cookie_jar.get("jwt") else {
+        return Err(ApiError::unauthorized());
+    };
+
+    let claims_result = decode::<Claims>(
+        token.value(),
+        &DecodingKey::from_secret(auth_config.jwt_secret.as_bytes()),
+        &Validation::default(),
+    );
+    match claims_result {
+        Ok(token_data) => Ok(User {
+            id: token_data.claims.sub.parse().unwrap_or(0),
+            login: token_data.claims.login,
+            name: token_data.claims.name,
+        }),
+        Err(e) => {
+            tracing::debug!(error=%e, "Invalid JWT token");
+            return Err(ApiError::unauthorized());
+        }
+    }
 }

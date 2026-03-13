@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
     let address = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 3000);
     let listener = tokio::net::TcpListener::bind(address).await?;
     let port = listener.local_addr()?.port();
-    info!("Listening on port {port}");
+    info!(port = port, "Starting...");
 
     let ticks_max: u32 = std::env::var("TICKS_MAX")?.parse()?;
     let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;

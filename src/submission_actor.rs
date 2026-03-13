@@ -41,7 +41,7 @@ pub async fn run_submission_actor(
 ) {
     while let Some(task) = tasks.recv().await {
         let ulid = task.ulid;
-        debug!("Received task {ulid}");
+        debug!(ulid=%ulid, "Received task");
         tokio::spawn(
             submission_task(config.clone(), db_service.clone(), task)
                 .instrument(info_span!("submission_task", ulid=%ulid)),
@@ -97,19 +97,18 @@ async fn submission_task(
     task: SubmissionTask,
 ) {
     let ulid_str = task.ulid.to_string();
-    info!("Processing submission {}", ulid_str);
 
     if let Err(e) = db_service
         .create_submission_with_user(ulid_str.clone(), task.user_id)
         .await
     {
-        error!("Failed to create submission record in database: {e:#}");
+        error!(error=%e, "Failed to create submission record in database");
         return;
     }
 
     let sub_dir = submission_dir(&config, task.ulid);
     if let Err(e) = fs::create_dir_all(&sub_dir).await {
-        error!("can't create submission_dir: {e:#}");
+        error!(error=%e, "Can't create submission_dir");
         return;
     }
 
@@ -117,7 +116,7 @@ async fn submission_task(
         .update_submission_status(&ulid_str, SubmissionStatus::InProgress)
         .await
     {
-        error!("Failed to update submission status to InProgress: {e:#}");
+        error!(error=%e, "Failed to update submission status to InProgress");
     }
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
@@ -146,21 +145,18 @@ async fn submission_task(
         }
     };
 
-    if let Err(write_err) = fs::write(&file_path, to_write.to_string()).await {
-        error!("failed to write submission task result: {write_err:#}");
+    if let Err(e) = fs::write(&file_path, to_write.to_string()).await {
+        error!(err=%e, "Failed to write submission task result");
     }
 
     if let Err(e) = db_service
         .update_submission_status(&ulid_str, final_status)
         .await
     {
-        error!("Failed to update final submission status: {e:#}");
+        error!(err=%e, "Failed to update final submission status");
     }
 
-    info!(
-        "Completed submission {} with status {:?}",
-        ulid_str, final_status
-    );
+    info!(status=?final_status, "Complete");
 }
 
 pub fn submission_dir(config: &Config, ulid: Ulid) -> PathBuf {
@@ -183,18 +179,18 @@ async fn compile_s_to_elf(
     s_content: &[u8],
     submission_dir: impl AsRef<Path>,
 ) -> Result<()> {
+    info!("Compiling...");
+
     let dir = submission_dir.as_ref();
     let s_path = dir.join("input.s");
     let o_path = dir.join("output.o");
     let elf_path = dir.join("output.elf");
 
-    info!("Writing program to {s_path:?}");
     let mut file = fs::File::create_new(&s_path)
         .await
         .context("writing source code")?;
     file.write_all(s_content).await?;
 
-    info!("Compiling {s_path:?} to object file {o_path:?}");
     let as_output = Command::new(&config.as_binary)
         .arg(&s_path)
         .arg("-o")
@@ -209,7 +205,6 @@ async fn compile_s_to_elf(
         bail!("Assembler error:\n{}\n{}", stderr, stdout);
     }
 
-    info!("Linking {o_path:?} to elf {elf_path:?}");
     let ld_output = Command::new(&config.ld_binary)
         .arg(&o_path)
         .arg("-Ttext=0x80000000")
@@ -225,14 +220,13 @@ async fn compile_s_to_elf(
         bail!("Linker error:\n{}\n{}", stderr, stdout);
     }
 
-    info!("Elf ready");
     Ok(())
 }
 
 async fn run_simulator(config: &Config, submission_dir: &Path, ticks: u32) -> Result<String> {
-    let elf_path = submission_dir.join("output.elf");
-    info!("Simulating the program at {elf_path:?}");
+    info!("Simulating...");
 
+    let elf_path = submission_dir.join("output.elf");
     let output = Command::new(&config.simulator_binary)
         .arg("--ticks")
         .arg(ticks.to_string())
@@ -250,7 +244,6 @@ async fn run_simulator(config: &Config, submission_dir: &Path, ticks: u32) -> Re
         bail!("Simulation error: {stderr}");
     }
 
-    info!("Simulating has been successful");
     Ok(stdout)
 }
 
