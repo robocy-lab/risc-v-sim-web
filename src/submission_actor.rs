@@ -112,12 +112,9 @@ async fn submission_task(
         return;
     }
 
-    if let Err(e) = db_service
+    db_service
         .update_submission_status(&ulid_str, SubmissionStatus::InProgress)
-        .await
-    {
-        error!(error=%e, "Failed to update submission status to InProgress");
-    }
+        .await;
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
     let file_path = submission_file(config.as_ref(), task.ulid);
@@ -149,12 +146,9 @@ async fn submission_task(
         error!(err=%e, "Failed to write submission task result");
     }
 
-    if let Err(e) = db_service
+    db_service
         .update_submission_status(&ulid_str, final_status)
-        .await
-    {
-        error!(err=%e, "Failed to update final submission status");
-    }
+        .await;
 
     info!(status=?final_status, "Complete");
 }

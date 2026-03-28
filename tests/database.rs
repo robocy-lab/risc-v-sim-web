@@ -33,8 +33,7 @@ async fn database_create_and_retrieve_submission() {
 
     db_service
         .update_submission_status(&test_uuid, SubmissionStatus::InProgress)
-        .await
-        .unwrap();
+        .await;
 
     let updated = db_service
         .get_submission_by_uuid(&test_uuid)

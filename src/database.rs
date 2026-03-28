@@ -101,11 +101,7 @@ impl DatabaseService {
         Ok(result.inserted_id.as_object_id().unwrap())
     }
 
-    pub async fn update_submission_status(
-        &self,
-        uuid: &str,
-        status: SubmissionStatus,
-    ) -> Result<()> {
+    pub async fn update_submission_status(&self, uuid: &str, status: SubmissionStatus) {
         let collection = self.submissions_collection();
         let filter = doc! { "uuid": uuid };
         let update = doc! {
@@ -115,12 +111,13 @@ impl DatabaseService {
             }
         };
 
-        collection
+        let res = collection
             .update_one(filter, update)
             .await
-            .context("Failed to update submission status")?;
-
-        Ok(())
+            .context("Failed to update submission status");
+        if let Err(err) = res {
+            tracing::error!(submission_id=uuid, new_state=?status, %err, "Failed to update submission status");
+        }
     }
 
     pub async fn get_submission_by_uuid(&self, uuid: &str) -> Result<Option<SubmissionRecord>> {
