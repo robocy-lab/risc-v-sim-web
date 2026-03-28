@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::Context;
 use bytes::Bytes;
 use serde_json::json;
 use std::future::Future;
@@ -51,8 +51,8 @@ pub async fn run_submission_actor(
 
 async fn future_with_timeout<T>(
     duration: Duration,
-    f: impl Future<Output = Result<T>>,
-) -> Result<T> {
+    f: impl Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
     timeout(duration, f)
         .await
         .map_err(anyhow::Error::from)
@@ -64,7 +64,7 @@ async fn simulate(
     ulid: Ulid,
     source_code: bytes::Bytes,
     ticks: u32,
-) -> Result<serde_json::Value> {
+) -> anyhow::Result<serde_json::Value> {
     let submission_dir = submission_dir(config, ulid);
     future_with_timeout(
         Duration::from_secs(5),
@@ -91,11 +91,7 @@ async fn simulate(
     Ok(json)
 }
 
-async fn submission_task(
-    config: Arc<Config>,
-    db_service: Arc<DbClient>,
-    task: SubmissionTask,
-) {
+async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: SubmissionTask) {
     let sub_dir = submission_dir(&config, task.ulid);
     if let Err(err) = fs::create_dir_all(&sub_dir).await {
         tracing::error!("Can't create submission_dir: {err:#}");
@@ -162,7 +158,7 @@ async fn compile_s_to_elf(
     config: &Config,
     s_content: &[u8],
     submission_dir: impl AsRef<Path>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     tracing::info!("Compiling...");
 
     let dir = submission_dir.as_ref();
@@ -186,7 +182,7 @@ async fn compile_s_to_elf(
     if !as_output.status.success() {
         let stderr = String::from_utf8_lossy(&as_output.stderr);
         let stdout = String::from_utf8_lossy(&as_output.stdout);
-        bail!("Assembler error:\n{}\n{}", stderr, stdout);
+        anyhow::bail!("Assembler error:\n{}\n{}", stderr, stdout);
     }
 
     let ld_output = Command::new(&config.ld_binary)
@@ -201,13 +197,17 @@ async fn compile_s_to_elf(
     if !ld_output.status.success() {
         let stderr = String::from_utf8_lossy(&ld_output.stderr);
         let stdout = String::from_utf8_lossy(&ld_output.stdout);
-        bail!("Linker error:\n{}\n{}", stderr, stdout);
+        anyhow::bail!("Linker error:\n{}\n{}", stderr, stdout);
     }
 
     Ok(())
 }
 
-async fn run_simulator(config: &Config, submission_dir: &Path, ticks: u32) -> Result<String> {
+async fn run_simulator(
+    config: &Config,
+    submission_dir: &Path,
+    ticks: u32,
+) -> anyhow::Result<String> {
     tracing::info!("Simulating...");
 
     let elf_path = submission_dir.join("output.elf");
@@ -225,7 +225,7 @@ async fn run_simulator(config: &Config, submission_dir: &Path, ticks: u32) -> Re
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if !output.status.success() {
-        bail!("Simulation error: {stderr}");
+        anyhow::bail!("Simulation error: {stderr}");
     }
 
     Ok(stdout)

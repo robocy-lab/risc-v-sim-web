@@ -78,11 +78,7 @@ async fn submit_handler(
         "New submission",
     );
 
-    if let Err(err) = config
-        .db
-        .create_submission_with_user(ulid, user_id)
-        .await
-    {
+    if let Err(err) = config.db.create_submission_with_user(ulid, user_id).await {
         return Err(ApiError::internal_error(err));
     }
 

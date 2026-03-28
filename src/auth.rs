@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Context;
 use axum::{
     Router,
     extract::{Query, Request, State},
@@ -48,16 +48,16 @@ pub struct Claims {
     pub exp: i64,
 }
 
-pub fn create_auth_config() -> Result<AuthConfig> {
+pub fn create_auth_config() -> anyhow::Result<AuthConfig> {
     let client_id = std::env::var("GITHUB_CLIENT_ID").context("GITHUB_CLIENT_ID not set")?;
     let client_secret =
         std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
     let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
 
     let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
-        .map_err(|e| anyhow!("Invalid auth URL: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid auth URL: {}", e))?;
     let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())
-        .map_err(|e| anyhow!("Invalid token URL: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid token URL: {}", e))?;
 
     let client = BasicClient::new(
         ClientId::new(client_id),

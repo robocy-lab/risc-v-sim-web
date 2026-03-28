@@ -1,10 +1,9 @@
-use anyhow::Result;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 use tracing::{Level, info};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_level(true)
         .with_max_level(Level::INFO)

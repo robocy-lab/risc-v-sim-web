@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Context;
 use futures_util::stream::TryStreamExt;
 use mongodb::{
     Client, Collection, Database, IndexModel,
@@ -54,7 +54,7 @@ pub struct DbClient {
 }
 
 impl DbClient {
-    pub async fn new() -> Result<Self> {
+    pub async fn new() -> anyhow::Result<Self> {
         let mongo_uri = std::env::var("MONGODB_URI")
             .unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
         let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
@@ -87,7 +87,10 @@ impl DbClient {
         self.db.collection("submissions")
     }
 
-    pub async fn get_user_submissions(&self, user_id: i64) -> Result<Vec<SubmissionRecord>> {
+    pub async fn get_user_submissions(
+        &self,
+        user_id: i64,
+    ) -> anyhow::Result<Vec<SubmissionRecord>> {
         let collection = self.submissions_collection();
         let filter = doc! { "user_id": user_id };
 
@@ -104,7 +107,10 @@ impl DbClient {
         Ok(submissions)
     }
 
-    pub async fn create_submission(&self, submission: SubmissionRecord) -> Result<ObjectId> {
+    pub async fn create_submission(
+        &self,
+        submission: SubmissionRecord,
+    ) -> anyhow::Result<ObjectId> {
         let collection = self.submissions_collection();
         let result = collection
             .insert_one(submission)
@@ -133,7 +139,10 @@ impl DbClient {
         }
     }
 
-    pub async fn get_submission_by_uuid(&self, uuid: Ulid) -> Result<Option<SubmissionRecord>> {
+    pub async fn get_submission_by_uuid(
+        &self,
+        uuid: Ulid,
+    ) -> anyhow::Result<Option<SubmissionRecord>> {
         let collection = self.submissions_collection();
         let filter = doc! { "uuid": BsonUlid(uuid) };
 
@@ -145,7 +154,11 @@ impl DbClient {
         Ok(submission)
     }
 
-    pub async fn create_submission_with_user(&self, uuid: Ulid, user_id: i64) -> Result<ObjectId> {
+    pub async fn create_submission_with_user(
+        &self,
+        uuid: Ulid,
+        user_id: i64,
+    ) -> anyhow::Result<ObjectId> {
         let now = DateTime::now();
         let submission = SubmissionRecord {
             id: None,

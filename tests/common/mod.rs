@@ -67,9 +67,7 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         jwt_secret: jwt_secret.to_string(),
     };
 
-    let db_service = risc_v_sim_web::database::DbClient::new()
-        .await
-        .unwrap();
+    let db_service = risc_v_sim_web::database::DbClient::new().await.unwrap();
 
     risc_v_sim_web::Config {
         actor_config: risc_v_sim_web::submission_actor::Config {
