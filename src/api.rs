@@ -207,6 +207,8 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        tracing::error!(err_code=self.code, "error: {:#}", self.cause);
+
         let err = format!("{:#}", self.cause);
         let body = Json(ApiErrorResponse {
             err,
