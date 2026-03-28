@@ -129,7 +129,7 @@ impl DatabaseService {
             .await
             .context("Failed to update submission status");
         if let Err(err) = res {
-            tracing::error!(submission_id=%uuid, new_state=?status, %err, "Failed to update submission status");
+            tracing::error!(submission_id=%uuid, new_state=?status, "Failed to update submission status: {err:#}");
         }
     }
 

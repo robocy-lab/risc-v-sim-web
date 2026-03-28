@@ -97,8 +97,8 @@ async fn submission_task(
     task: SubmissionTask,
 ) {
     let sub_dir = submission_dir(&config, task.ulid);
-    if let Err(e) = fs::create_dir_all(&sub_dir).await {
-        error!(error=%e, "Can't create submission_dir");
+    if let Err(err) = fs::create_dir_all(&sub_dir).await {
+        error!("Can't create submission_dir: {err:#}");
         return;
     }
 
@@ -132,8 +132,8 @@ async fn submission_task(
         }
     };
 
-    if let Err(e) = fs::write(&file_path, to_write.to_string()).await {
-        error!(err=%e, "Failed to write submission task result");
+    if let Err(err) = fs::write(&file_path, to_write.to_string()).await {
+        error!("Failed to write submission task result: {err:#}");
     }
 
     db_service

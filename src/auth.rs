@@ -108,8 +108,8 @@ pub async fn oauth_callback_handler(
         .exchange_code(code)
         .request_async(async_http_client)
         .await
-        .map_err(|e| {
-            tracing::error!(error=%e, "Failed to exchange code for token");
+        .map_err(|err| {
+            tracing::error!("Failed to exchange code for token: {err:#}");
             StatusCode::BAD_REQUEST
         })?;
 
@@ -123,13 +123,13 @@ pub async fn oauth_callback_handler(
         .header("User-Agent", "risc-v-sim-web")
         .send()
         .await
-        .map_err(|e| {
-            tracing::error!(error=%e, "Failed to fetch user from GitHub");
+        .map_err(|err| {
+            tracing::error!("Failed to fetch user from GitHub: {err:#}");
             StatusCode::BAD_REQUEST
         })?;
 
-    let user_data: serde_json::Value = user_response.json().await.map_err(|e| {
-        tracing::error!(error=%e, "Failed to parse GitHub user response");
+    let user_data: serde_json::Value = user_response.json().await.map_err(|err| {
+        tracing::error!("Failed to parse GitHub user response: {err:#}");
         StatusCode::BAD_REQUEST
     })?;
 
@@ -149,8 +149,8 @@ pub async fn oauth_callback_handler(
         &claims,
         &EncodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
     )
-    .map_err(|e| {
-        tracing::error!(error=%e, "Failed to create JWT token");
+    .map_err(|err| {
+        tracing::error!("Failed to create JWT token: {err:#}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -208,8 +208,8 @@ fn get_user_from_cookies(
             login: token_data.claims.login,
             name: token_data.claims.name,
         }),
-        Err(e) => {
-            tracing::debug!(error=%e, "Invalid JWT token");
+        Err(err) => {
+            tracing::debug!("Invalid JWT token: {err:#}");
             return Err(ApiError::unauthorized());
         }
     }
