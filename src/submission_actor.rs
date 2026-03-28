@@ -96,8 +96,6 @@ async fn submission_task(
     db_service: Arc<DatabaseService>,
     task: SubmissionTask,
 ) {
-    let ulid_str = task.ulid.to_string();
-
     let sub_dir = submission_dir(&config, task.ulid);
     if let Err(e) = fs::create_dir_all(&sub_dir).await {
         error!(error=%e, "Can't create submission_dir");
@@ -105,7 +103,7 @@ async fn submission_task(
     }
 
     db_service
-        .update_submission_status(&ulid_str, SubmissionStatus::InProgress)
+        .update_submission_status(task.ulid, SubmissionStatus::InProgress)
         .await;
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
@@ -139,7 +137,7 @@ async fn submission_task(
     }
 
     db_service
-        .update_submission_status(&ulid_str, final_status)
+        .update_submission_status(task.ulid, final_status)
         .await;
 
     info!(status=?final_status, "Complete");

@@ -81,7 +81,7 @@ async fn submit_handler(
 
     if let Err(err) = config
         .db_service
-        .create_submission_with_user(ulid.to_string(), user_id)
+        .create_submission_with_user(ulid, user_id)
         .await
     {
         return Err(ApiError::internal_error(err));

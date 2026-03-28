@@ -6,16 +6,29 @@ use mongodb::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use ulid::Ulid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmissionRecord {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
     pub id: Option<ObjectId>,
-    pub uuid: String,
+    pub uuid: Ulid,
     pub user_id: i64,
     pub status: SubmissionStatus,
     pub created_at: DateTime,
     pub updated_at: DateTime,
+}
+
+/// Hack-type to put ulid into BSON
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(transparent)]
+#[repr(transparent)]
+struct BsonUlid(pub Ulid);
+
+impl From<BsonUlid> for Bson {
+    fn from(value: BsonUlid) -> Self {
+        Bson::String(value.0.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -101,9 +114,9 @@ impl DatabaseService {
         Ok(result.inserted_id.as_object_id().unwrap())
     }
 
-    pub async fn update_submission_status(&self, uuid: &str, status: SubmissionStatus) {
+    pub async fn update_submission_status(&self, uuid: Ulid, status: SubmissionStatus) {
         let collection = self.submissions_collection();
-        let filter = doc! { "uuid": uuid };
+        let filter = doc! { "uuid": BsonUlid(uuid) };
         let update = doc! {
             "$set": {
                 "status": Bson::from(status),
@@ -116,13 +129,13 @@ impl DatabaseService {
             .await
             .context("Failed to update submission status");
         if let Err(err) = res {
-            tracing::error!(submission_id=uuid, new_state=?status, %err, "Failed to update submission status");
+            tracing::error!(submission_id=%uuid, new_state=?status, %err, "Failed to update submission status");
         }
     }
 
-    pub async fn get_submission_by_uuid(&self, uuid: &str) -> Result<Option<SubmissionRecord>> {
+    pub async fn get_submission_by_uuid(&self, uuid: Ulid) -> Result<Option<SubmissionRecord>> {
         let collection = self.submissions_collection();
-        let filter = doc! { "uuid": uuid };
+        let filter = doc! { "uuid": BsonUlid(uuid) };
 
         let submission = collection
             .find_one(filter)
@@ -132,11 +145,7 @@ impl DatabaseService {
         Ok(submission)
     }
 
-    pub async fn create_submission_with_user(
-        &self,
-        uuid: String,
-        user_id: i64,
-    ) -> Result<ObjectId> {
+    pub async fn create_submission_with_user(&self, uuid: Ulid, user_id: i64) -> Result<ObjectId> {
         let now = DateTime::now();
         let submission = SubmissionRecord {
             id: None,

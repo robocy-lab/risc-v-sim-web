@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
         };
 
         for i in 0..num_submissions {
-            let uuid = Ulid::new().to_string();
+            let uuid = Ulid::new();
             let status = match i % 3 {
                 0 => SubmissionStatus::Completed,
                 1 => SubmissionStatus::InProgress,
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
 
             let submission = SubmissionRecord {
                 id: None,
-                uuid: uuid.clone(),
+                uuid,
                 user_id: *user_id,
                 status,
                 created_at,
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
             let inserted_id = db_service.create_submission(submission).await?;
             println!("  Created submission {} with ID: {}", uuid, inserted_id);
 
-            create_submission_files(&uuid, i).await?;
+            create_submission_files(uuid, i).await?;
         }
     }
 
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn create_submission_files(uuid: &str, index: usize) -> Result<()> {
+async fn create_submission_files(uuid: ulid::Ulid, index: usize) -> Result<()> {
     let submissions_dir =
         env::var("SUBMISSIONS_FOLDER").unwrap_or_else(|_| "submission".to_string());
     let submission_path = format!("{}/{}", submissions_dir, uuid);
@@ -107,7 +107,7 @@ fn create_sample_simulation_result(assembly_code: &str, index: usize) -> String 
     };
 
     let result = serde_json::json!({
-        "ulid": ulid.to_string(),
+        "ulid": ulid,
         "ticks": 10,
         "code": assembly_code,
         "steps": steps,
