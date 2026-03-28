@@ -1,9 +1,9 @@
 use mongodb::bson::DateTime;
-use risc_v_sim_web::database::{DatabaseService, SubmissionRecord, SubmissionStatus};
+use risc_v_sim_web::database::{DbClient, SubmissionRecord, SubmissionStatus};
 
 #[tokio::test]
 async fn database_create_and_retrieve_submission() {
-    let db_service = DatabaseService::new().await.unwrap();
+    let db_service = DbClient::new().await.unwrap();
 
     let test_uuid = ulid::Ulid::new();
     let test_user_id: i64 = 123456;

@@ -10,7 +10,7 @@ use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{Instrument, info_span};
 
-use crate::database::DatabaseService;
+use crate::database::DbClient;
 use auth::{AuthConfig, auth_middleware};
 use submission_actor::{
     Config as ActorConfig, SubmissionTask, run_submission_actor, submission_file,
@@ -19,7 +19,7 @@ use submission_actor::{
 pub struct Config {
     pub actor_config: ActorConfig,
     pub auth_config: AuthConfig,
-    pub db_service: Arc<DatabaseService>,
+    pub db: Arc<DbClient>,
 }
 
 pub async fn health_handler() -> &'static str {
@@ -32,7 +32,7 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
 
     let submission_actor = run_submission_actor(
         Arc::new(config.actor_config.clone()),
-        config.db_service.clone(),
+        config.db.clone(),
         task_recv,
     )
     .instrument(info_span!("submission_actor"));

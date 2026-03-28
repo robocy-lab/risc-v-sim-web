@@ -1,14 +1,14 @@
 use anyhow::Result;
 use bson::DateTime;
 use mongodb::bson;
-use risc_v_sim_web::database::{DatabaseService, SubmissionRecord, SubmissionStatus};
+use risc_v_sim_web::database::{DbClient, SubmissionRecord, SubmissionStatus};
 use serde_json;
 use std::env;
 use ulid::Ulid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db_service = DatabaseService::new().await?;
+    let db_service = DbClient::new().await?;
 
     let test_user_ids = vec![
         // miko089's GitHub user id for me to be able to see my submissions even in test run

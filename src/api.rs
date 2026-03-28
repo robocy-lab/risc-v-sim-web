@@ -79,7 +79,7 @@ async fn submit_handler(
     );
 
     if let Err(err) = config
-        .db_service
+        .db
         .create_submission_with_user(ulid, user_id)
         .await
     {
@@ -148,7 +148,7 @@ async fn user_submissions_handler(
     Extension(user): Extension<User>,
 ) -> ApiResult<UserSubmissionsResponse> {
     let submissions = config
-        .db_service
+        .db
         .get_user_submissions(user.id)
         .await
         .context("fetch")

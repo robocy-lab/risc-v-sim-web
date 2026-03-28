@@ -67,7 +67,7 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         jwt_secret: jwt_secret.to_string(),
     };
 
-    let db_service = risc_v_sim_web::database::DatabaseService::new()
+    let db_service = risc_v_sim_web::database::DbClient::new()
         .await
         .unwrap();
 
@@ -87,7 +87,7 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
             codesize_max: 256,
         },
         auth_config: auth_state,
-        db_service: std::sync::Arc::new(db_service),
+        db: std::sync::Arc::new(db_service),
     }
 }
 

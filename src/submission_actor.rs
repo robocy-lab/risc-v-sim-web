@@ -6,7 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use tokio::fs;
 
-use crate::database::{DatabaseService, SubmissionStatus};
+use crate::database::{DbClient, SubmissionStatus};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -36,7 +36,7 @@ pub struct Config {
 
 pub async fn run_submission_actor(
     config: Arc<Config>,
-    db_service: Arc<DatabaseService>,
+    db_service: Arc<DbClient>,
     mut tasks: Receiver<SubmissionTask>,
 ) {
     while let Some(task) = tasks.recv().await {
@@ -93,7 +93,7 @@ async fn simulate(
 
 async fn submission_task(
     config: Arc<Config>,
-    db_service: Arc<DatabaseService>,
+    db_service: Arc<DbClient>,
     task: SubmissionTask,
 ) {
     let sub_dir = submission_dir(&config, task.ulid);

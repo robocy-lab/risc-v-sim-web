@@ -49,11 +49,11 @@ impl From<SubmissionStatus> for Bson {
 }
 
 #[derive(Clone)]
-pub struct DatabaseService {
+pub struct DbClient {
     db: Arc<Database>,
 }
 
-impl DatabaseService {
+impl DbClient {
     pub async fn new() -> Result<Self> {
         let mongo_uri = std::env::var("MONGODB_URI")
             .unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
@@ -80,7 +80,7 @@ impl DatabaseService {
             .await
             .context("Failed to create index on uuid")?;
 
-        Ok(DatabaseService { db })
+        Ok(DbClient { db })
     }
 
     pub fn submissions_collection(&self) -> Collection<SubmissionRecord> {
