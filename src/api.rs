@@ -78,6 +78,15 @@ async fn submit_handler(
         size=source_code.len(),
         "New submission",
     );
+
+    if let Err(err) = config
+        .db_service
+        .create_submission_with_user(ulid.to_string(), user_id)
+        .await
+    {
+        return Err(ApiError::internal_error(err));
+    }
+
     task_send
         .send(SubmissionTask {
             source_code,

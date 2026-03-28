@@ -98,14 +98,6 @@ async fn submission_task(
 ) {
     let ulid_str = task.ulid.to_string();
 
-    if let Err(e) = db_service
-        .create_submission_with_user(ulid_str.clone(), task.user_id)
-        .await
-    {
-        error!(error=%e, "Failed to create submission record in database");
-        return;
-    }
-
     let sub_dir = submission_dir(&config, task.ulid);
     if let Err(e) = fs::create_dir_all(&sub_dir).await {
         error!(error=%e, "Can't create submission_dir");
