@@ -13,7 +13,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
-use tracing::{Instrument, debug, error, info, info_span};
+use tracing::Instrument;
 use ulid::{ULID_LEN, Ulid};
 
 #[derive(Debug)]
@@ -41,10 +41,10 @@ pub async fn run_submission_actor(
 ) {
     while let Some(task) = tasks.recv().await {
         let ulid = task.ulid;
-        debug!(ulid=%ulid, "Received task");
+        tracing::debug!(ulid=%ulid, "Received task");
         tokio::spawn(
             submission_task(config.clone(), db_service.clone(), task)
-                .instrument(info_span!("submission_task", ulid=%ulid)),
+                .instrument(tracing::info_span!("submission_task", ulid=%ulid)),
         );
     }
 }
@@ -98,7 +98,7 @@ async fn submission_task(
 ) {
     let sub_dir = submission_dir(&config, task.ulid);
     if let Err(err) = fs::create_dir_all(&sub_dir).await {
-        error!("Can't create submission_dir: {err:#}");
+        tracing::error!("Can't create submission_dir: {err:#}");
         return;
     }
 
@@ -119,7 +119,7 @@ async fn submission_task(
             (SubmissionStatus::Completed, json)
         }
         Err(e) => {
-            error!("simulation failed: {e:#}");
+            tracing::error!("simulation failed: {e:#}");
             (
                 SubmissionStatus::Completed,
                 serde_json::json!({
@@ -133,14 +133,14 @@ async fn submission_task(
     };
 
     if let Err(err) = fs::write(&file_path, to_write.to_string()).await {
-        error!("Failed to write submission task result: {err:#}");
+        tracing::error!("Failed to write submission task result: {err:#}");
     }
 
     db_service
         .update_submission_status(task.ulid, final_status)
         .await;
 
-    info!(status=?final_status, "Complete");
+    tracing::info!(status=?final_status, "Complete");
 }
 
 pub fn submission_dir(config: &Config, ulid: Ulid) -> PathBuf {
@@ -163,7 +163,7 @@ async fn compile_s_to_elf(
     s_content: &[u8],
     submission_dir: impl AsRef<Path>,
 ) -> Result<()> {
-    info!("Compiling...");
+    tracing::info!("Compiling...");
 
     let dir = submission_dir.as_ref();
     let s_path = dir.join("input.s");
@@ -208,7 +208,7 @@ async fn compile_s_to_elf(
 }
 
 async fn run_simulator(config: &Config, submission_dir: &Path, ticks: u32) -> Result<String> {
-    info!("Simulating...");
+    tracing::info!("Simulating...");
 
     let elf_path = submission_dir.join("output.elf");
     let output = Command::new(&config.simulator_binary)
