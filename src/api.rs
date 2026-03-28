@@ -32,7 +32,7 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
 async fn submission_handler(
     State(config): State<Arc<Config>>,
     submission: Query<SubmissionRequest>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<Box<serde_json::value::RawValue>> {
     let submission = crate::submission_file(&config.actor_config, submission.ulid);
     let content = match fs::read(submission).await {
         Ok(x) => x,
@@ -45,7 +45,6 @@ async fn submission_handler(
         }
     };
 
-    // TODO: may want to just return the bytes
     serde_json::from_slice(&content)
         .context("parsing")
         .map_err(ApiError::internal_error)
