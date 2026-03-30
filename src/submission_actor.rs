@@ -221,14 +221,7 @@ async fn run_simulator(
         .await
         .context("simulating")?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if !output.status.success() {
-        anyhow::bail!("Simulation error: {stderr}");
-    }
-
-    Ok(stdout)
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 #[cfg(test)]
