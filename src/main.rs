@@ -1,10 +1,9 @@
-use anyhow::Result;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 use tracing::{Level, info};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_level(true)
         .with_max_level(Level::INFO)
@@ -19,7 +18,7 @@ async fn main() -> Result<()> {
     let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
     let auth_state = risc_v_sim_web::auth::create_auth_config()?;
 
-    let db_service = risc_v_sim_web::database::DatabaseService::new().await?;
+    let db = risc_v_sim_web::database::DbClient::new().await?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
@@ -42,7 +41,7 @@ async fn main() -> Result<()> {
                 codesize_max,
             },
             auth_config: auth_state,
-            db_service: Arc::new(db_service),
+            db: Arc::new(db),
         },
     )
     .await;
