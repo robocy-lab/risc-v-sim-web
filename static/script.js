@@ -127,7 +127,7 @@ class RISCVSimulator {
         this.hideError();
 
         try {
-            const endpoint = '/api/submit';
+            const endpoint = '/api/submission';
             
             const response = await fetch(endpoint, {
                 method: 'POST',
@@ -156,7 +156,7 @@ class RISCVSimulator {
             const maxAttempts = 60;
 
             while (attempts < maxAttempts) {
-                const pollResponse = await fetch(`/api/submission?ulid=${encodeURIComponent(submitResult.ulid)}`);
+                const pollResponse = await fetch(`/api/submission/${encodeURIComponent(submitResult.ulid)}`);
                 
                 if (pollResponse.ok) {
                     result = await pollResponse.json();
@@ -285,7 +285,7 @@ class RISCVSimulator {
             const maxAttempts = 15;
 
             while (attempts < maxAttempts) {
-                const response = await fetch(`/api/submission?ulid=${encodeURIComponent(id)}`);
+                const response = await fetch(`/api/submission/${encodeURIComponent(id)}`);
                 
                 if (response.ok) {
                     result = await response.json();
@@ -346,7 +346,7 @@ class SubmissionsPage {
 
     async loadSubmissions() {
         try {
-            const response = await fetch('/api/user-submissions');
+            const response = await fetch('/api/submission');
             if (response.ok) {
                 const data = await response.json();
                 this.submissions = data.submissions.map(sub => (
@@ -453,7 +453,7 @@ class SubmissionsPage {
             const maxAttempts = 15;
 
             while (attempts < maxAttempts) {
-                const response = await fetch(`/api/submission?ulid=${encodeURIComponent(id)}`);
+                const response = await fetch(`/api/submission/${encodeURIComponent(id)}`);
                 
                 if (response.ok) {
                     result = await response.json();

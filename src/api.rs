@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use axum::extract::multipart::Field;
-use axum::extract::{Multipart, Query, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -19,9 +19,8 @@ use crate::submission_actor::SubmissionTask;
 
 pub fn api_routes() -> Router<Arc<Config>> {
     Router::new()
-        .route("/submit", post(submit_handler))
-        .route("/submission", get(submission_handler))
-        .route("/user-submissions", get(user_submissions_handler))
+        .route("/submission", post(submit_handler).get(user_submissions_handler))
+        .route("/submission/{ulid}", get(submission_handler))
         .route("/me", get(me_handler))
 }
 
@@ -31,9 +30,9 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
 
 async fn submission_handler(
     State(config): State<Arc<Config>>,
-    submission: Query<SubmissionRequest>,
+    Path(ulid): Path<Ulid>,
 ) -> ApiResult<serde_json::Value> {
-    let submission = crate::submission_file(&config.actor_config, submission.ulid);
+    let submission = crate::submission_file(&config.actor_config, ulid);
     let content = match fs::read(submission).await {
         Ok(x) => x,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -50,11 +49,6 @@ async fn submission_handler(
         .context("parsing")
         .map_err(ApiError::internal_error)
         .map(Json)
-}
-
-#[derive(Deserialize)]
-pub struct SubmissionRequest {
-    ulid: Ulid,
 }
 
 async fn submit_handler(

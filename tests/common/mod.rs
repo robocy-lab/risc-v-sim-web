@@ -114,7 +114,7 @@ pub async fn submit_program(
     ticks: u32,
     path: impl AsRef<Path>,
 ) -> Response {
-    let request_url = server_url(port).join("api/submit").unwrap();
+    let request_url = server_url(port).join("api/submission").unwrap();
     let token = generate_test_token(
         "123456",
         "testuser",
@@ -138,7 +138,9 @@ pub async fn submit_program(
 
 #[allow(dead_code)]
 pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> Response {
-    let request_url = server_url(port).join("api/submission").unwrap();
+    let request_url = server_url(port)
+        .join(&format!("api/submission/{submission_id}"))
+        .unwrap();
     let token = generate_test_token(
         "123456",
         "testuser",
@@ -148,7 +150,6 @@ pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> 
 
     client
         .get(request_url)
-        .query(&[("ulid", &submission_id.to_string())])
         .header("Cookie", cookie)
         .send()
         .await
