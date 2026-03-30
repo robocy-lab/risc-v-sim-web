@@ -19,7 +19,10 @@ use crate::submission_actor::SubmissionTask;
 
 pub fn api_routes() -> Router<Arc<Config>> {
     Router::new()
-        .route("/submission", post(submit_handler).get(user_submissions_handler))
+        .route(
+            "/submission",
+            post(submit_handler).get(user_submissions_handler),
+        )
         .route("/submission/{ulid}", get(submission_handler))
         .route("/me", get(me_handler))
 }
