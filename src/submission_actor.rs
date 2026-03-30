@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::Context;
 use bytes::Bytes;
 use serde_json::json;
 use std::future::Future;
@@ -6,14 +6,14 @@ use std::path::Path;
 use std::path::PathBuf;
 use tokio::fs;
 
-use crate::database::{DatabaseService, SubmissionStatus};
+use crate::database::{DbClient, SubmissionStatus};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
-use tracing::{Instrument, debug, error, info, info_span};
+use tracing::Instrument;
 use ulid::{ULID_LEN, Ulid};
 
 #[derive(Debug)]
@@ -36,23 +36,23 @@ pub struct Config {
 
 pub async fn run_submission_actor(
     config: Arc<Config>,
-    db_service: Arc<DatabaseService>,
+    db_service: Arc<DbClient>,
     mut tasks: Receiver<SubmissionTask>,
 ) {
     while let Some(task) = tasks.recv().await {
         let ulid = task.ulid;
-        debug!(ulid=%ulid, "Received task");
+        tracing::debug!(ulid=%ulid, "Received task");
         tokio::spawn(
             submission_task(config.clone(), db_service.clone(), task)
-                .instrument(info_span!("submission_task", ulid=%ulid)),
+                .instrument(tracing::info_span!("submission_task", ulid=%ulid)),
         );
     }
 }
 
 async fn future_with_timeout<T>(
     duration: Duration,
-    f: impl Future<Output = Result<T>>,
-) -> Result<T> {
+    f: impl Future<Output = anyhow::Result<T>>,
+) -> anyhow::Result<T> {
     timeout(duration, f)
         .await
         .map_err(anyhow::Error::from)
@@ -64,7 +64,7 @@ async fn simulate(
     ulid: Ulid,
     source_code: bytes::Bytes,
     ticks: u32,
-) -> Result<serde_json::Value> {
+) -> anyhow::Result<serde_json::Value> {
     let submission_dir = submission_dir(config, ulid);
     future_with_timeout(
         Duration::from_secs(5),
@@ -91,33 +91,16 @@ async fn simulate(
     Ok(json)
 }
 
-async fn submission_task(
-    config: Arc<Config>,
-    db_service: Arc<DatabaseService>,
-    task: SubmissionTask,
-) {
-    let ulid_str = task.ulid.to_string();
-
-    if let Err(e) = db_service
-        .create_submission_with_user(ulid_str.clone(), task.user_id)
-        .await
-    {
-        error!(error=%e, "Failed to create submission record in database");
-        return;
-    }
-
+async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: SubmissionTask) {
     let sub_dir = submission_dir(&config, task.ulid);
-    if let Err(e) = fs::create_dir_all(&sub_dir).await {
-        error!(error=%e, "Can't create submission_dir");
+    if let Err(err) = fs::create_dir_all(&sub_dir).await {
+        tracing::error!("Can't create submission_dir: {err:#}");
         return;
     }
 
-    if let Err(e) = db_service
-        .update_submission_status(&ulid_str, SubmissionStatus::InProgress)
-        .await
-    {
-        error!(error=%e, "Failed to update submission status to InProgress");
-    }
+    db_service
+        .update_submission_status(task.ulid, SubmissionStatus::InProgress)
+        .await;
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
     let file_path = submission_file(config.as_ref(), task.ulid);
@@ -132,7 +115,7 @@ async fn submission_task(
             (SubmissionStatus::Completed, json)
         }
         Err(e) => {
-            error!("simulation failed: {e:#}");
+            tracing::error!("simulation failed: {e:#}");
             (
                 SubmissionStatus::Completed,
                 serde_json::json!({
@@ -145,18 +128,15 @@ async fn submission_task(
         }
     };
 
-    if let Err(e) = fs::write(&file_path, to_write.to_string()).await {
-        error!(err=%e, "Failed to write submission task result");
+    if let Err(err) = fs::write(&file_path, to_write.to_string()).await {
+        tracing::error!("Failed to write submission task result: {err:#}");
     }
 
-    if let Err(e) = db_service
-        .update_submission_status(&ulid_str, final_status)
-        .await
-    {
-        error!(err=%e, "Failed to update final submission status");
-    }
+    db_service
+        .update_submission_status(task.ulid, final_status)
+        .await;
 
-    info!(status=?final_status, "Complete");
+    tracing::info!(status=?final_status, "Complete");
 }
 
 pub fn submission_dir(config: &Config, ulid: Ulid) -> PathBuf {
@@ -178,8 +158,8 @@ async fn compile_s_to_elf(
     config: &Config,
     s_content: &[u8],
     submission_dir: impl AsRef<Path>,
-) -> Result<()> {
-    info!("Compiling...");
+) -> anyhow::Result<()> {
+    tracing::info!("Compiling...");
 
     let dir = submission_dir.as_ref();
     let s_path = dir.join("input.s");
@@ -202,7 +182,7 @@ async fn compile_s_to_elf(
     if !as_output.status.success() {
         let stderr = String::from_utf8_lossy(&as_output.stderr);
         let stdout = String::from_utf8_lossy(&as_output.stdout);
-        bail!("Assembler error:\n{}\n{}", stderr, stdout);
+        anyhow::bail!("Assembler error:\n{}\n{}", stderr, stdout);
     }
 
     let ld_output = Command::new(&config.ld_binary)
@@ -217,14 +197,18 @@ async fn compile_s_to_elf(
     if !ld_output.status.success() {
         let stderr = String::from_utf8_lossy(&ld_output.stderr);
         let stdout = String::from_utf8_lossy(&ld_output.stdout);
-        bail!("Linker error:\n{}\n{}", stderr, stdout);
+        anyhow::bail!("Linker error:\n{}\n{}", stderr, stdout);
     }
 
     Ok(())
 }
 
-async fn run_simulator(config: &Config, submission_dir: &Path, ticks: u32) -> Result<String> {
-    info!("Simulating...");
+async fn run_simulator(
+    config: &Config,
+    submission_dir: &Path,
+    ticks: u32,
+) -> anyhow::Result<String> {
+    tracing::info!("Simulating...");
 
     let elf_path = submission_dir.join("output.elf");
     let output = Command::new(&config.simulator_binary)

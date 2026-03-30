@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Context;
 use axum::{
     Router,
     extract::{Query, Request, State},
@@ -48,16 +48,16 @@ pub struct Claims {
     pub exp: i64,
 }
 
-pub fn create_auth_config() -> Result<AuthConfig> {
+pub fn create_auth_config() -> anyhow::Result<AuthConfig> {
     let client_id = std::env::var("GITHUB_CLIENT_ID").context("GITHUB_CLIENT_ID not set")?;
     let client_secret =
         std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
     let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
 
     let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
-        .map_err(|e| anyhow!("Invalid auth URL: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid auth URL: {}", e))?;
     let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())
-        .map_err(|e| anyhow!("Invalid token URL: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Invalid token URL: {}", e))?;
 
     let client = BasicClient::new(
         ClientId::new(client_id),
@@ -108,8 +108,8 @@ pub async fn oauth_callback_handler(
         .exchange_code(code)
         .request_async(async_http_client)
         .await
-        .map_err(|e| {
-            tracing::error!(error=%e, "Failed to exchange code for token");
+        .map_err(|err| {
+            tracing::error!("Failed to exchange code for token: {err:#}");
             StatusCode::BAD_REQUEST
         })?;
 
@@ -123,13 +123,13 @@ pub async fn oauth_callback_handler(
         .header("User-Agent", "risc-v-sim-web")
         .send()
         .await
-        .map_err(|e| {
-            tracing::error!(error=%e, "Failed to fetch user from GitHub");
+        .map_err(|err| {
+            tracing::error!("Failed to fetch user from GitHub: {err:#}");
             StatusCode::BAD_REQUEST
         })?;
 
-    let user_data: serde_json::Value = user_response.json().await.map_err(|e| {
-        tracing::error!(error=%e, "Failed to parse GitHub user response");
+    let user_data: serde_json::Value = user_response.json().await.map_err(|err| {
+        tracing::error!("Failed to parse GitHub user response: {err:#}");
         StatusCode::BAD_REQUEST
     })?;
 
@@ -149,8 +149,8 @@ pub async fn oauth_callback_handler(
         &claims,
         &EncodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
     )
-    .map_err(|e| {
-        tracing::error!(error=%e, "Failed to create JWT token");
+    .map_err(|err| {
+        tracing::error!("Failed to create JWT token: {err:#}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -208,8 +208,8 @@ fn get_user_from_cookies(
             login: token_data.claims.login,
             name: token_data.claims.name,
         }),
-        Err(e) => {
-            tracing::debug!(error=%e, "Invalid JWT token");
+        Err(err) => {
+            tracing::debug!("Invalid JWT token: {err:#}");
             return Err(ApiError::unauthorized());
         }
     }

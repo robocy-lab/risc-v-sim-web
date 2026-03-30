@@ -32,7 +32,7 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
 async fn submission_handler(
     State(config): State<Arc<Config>>,
     submission: Query<SubmissionRequest>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<Box<serde_json::value::RawValue>> {
     let submission = crate::submission_file(&config.actor_config, submission.ulid);
     let content = match fs::read(submission).await {
         Ok(x) => x,
@@ -45,7 +45,6 @@ async fn submission_handler(
         }
     };
 
-    // TODO: may want to just return the bytes
     serde_json::from_slice(&content)
         .context("parsing")
         .map_err(ApiError::internal_error)
@@ -78,6 +77,11 @@ async fn submit_handler(
         size=source_code.len(),
         "New submission",
     );
+
+    if let Err(err) = config.db.create_submission_with_user(ulid, user_id).await {
+        return Err(ApiError::internal_error(err));
+    }
+
     task_send
         .send(SubmissionTask {
             source_code,
@@ -140,7 +144,7 @@ async fn user_submissions_handler(
     Extension(user): Extension<User>,
 ) -> ApiResult<UserSubmissionsResponse> {
     let submissions = config
-        .db_service
+        .db
         .get_user_submissions(user.id)
         .await
         .context("fetch")
@@ -198,6 +202,8 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        tracing::error!(err_code = self.code, "error: {:#}", self.cause);
+
         let err = format!("{:#}", self.cause);
         let body = Json(ApiErrorResponse {
             err,
