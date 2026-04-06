@@ -127,7 +127,7 @@ class RISCVSimulator {
         this.hideError();
 
         try {
-            const endpoint = '/api/submit';
+            const endpoint = '/api/submission';
             
             const response = await fetch(endpoint, {
                 method: 'POST',
@@ -147,39 +147,45 @@ class RISCVSimulator {
                 throw new Error(errorText);
             }
 
-            // Update loading text to show polling
             this.updateLoadingText('Polling for results...');
 
-            // Poll for results using the ULID
-            let result = null;
+            const ulid = submitResult.ulid;
             let attempts = 0;
             const maxAttempts = 60;
 
             while (attempts < maxAttempts) {
-                const pollResponse = await fetch(`/api/submission?ulid=${encodeURIComponent(submitResult.ulid)}`);
-                
-                if (pollResponse.ok) {
-                    result = await pollResponse.json();
-                    break;
+                const statusResponse = await fetch(`/api/submission/${encodeURIComponent(ulid)}`);
+
+                if (statusResponse.ok) {
+                    const status = await statusResponse.json();
+                    if (status.status === 'Completed') break;
                 }
-                
-                if (pollResponse.status !== 404) {
-                    throw new Error(`HTTP ${pollResponse.status}`);
-                }
-                
+
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 attempts++;
             }
 
-            if (!result) {
+            if (attempts >= maxAttempts) {
                 throw new Error('Simulation not found after polling');
             }
 
-            // Check if the result contains a simulator error
-            if (result.error) {
-                throw new Error(result.error);
+            const [sourceRes, traceRes] = await Promise.all([
+                fetch(`/api/submission/${encodeURIComponent(ulid)}/source`),
+                fetch(`/api/submission/${encodeURIComponent(ulid)}/trace`),
+            ]);
+
+            if (!sourceRes.ok || !traceRes.ok) {
+                throw new Error('Failed to fetch submission results');
             }
 
+            const source = await sourceRes.json();
+            const trace = await traceRes.json();
+
+            if (trace.error) {
+                throw new Error(trace.error);
+            }
+
+            const result = { ...trace, code: source.code };
             this.showResults(result, code, ticks);
 
         } catch (error) {
@@ -280,43 +286,59 @@ class RISCVSimulator {
             fetchBtn.textContent = 'Polling...';
             fetchBtn.disabled = true;
 
-            let result = null;
             let attempts = 0;
             const maxAttempts = 15;
 
             while (attempts < maxAttempts) {
-                const response = await fetch(`/api/submission?ulid=${encodeURIComponent(id)}`);
-                
-                if (response.ok) {
-                    result = await response.json();
-                    break;
+                const statusResponse = await fetch(`/api/submission/${encodeURIComponent(id)}`);
+
+                if (statusResponse.ok) {
+                    const status = await statusResponse.json();
+                    if (status.status === 'Completed') break;
                 }
-                
-                if (response.status !== 404) {
-                    throw new Error(`HTTP ${response.status}`);
+
+                if (statusResponse.status === 404) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    attempts++;
+                    continue;
                 }
-                
+
+                if (!statusResponse.ok) {
+                    throw new Error(`HTTP ${statusResponse.status}`);
+                }
+
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 attempts++;
             }
 
-            if (!result) {
+            if (attempts >= maxAttempts) {
                 alert('Submission not found after polling');
                 return;
             }
 
-            // Check if result contains a simulator error
-            if (result.error) {
-                alert('Simulation error: ' + result.error);
+            const [sourceRes, traceRes] = await Promise.all([
+                fetch(`/api/submission/${encodeURIComponent(id)}/source`),
+                fetch(`/api/submission/${encodeURIComponent(id)}/trace`),
+            ]);
+
+            if (!sourceRes.ok || !traceRes.ok) {
+                alert('Failed to fetch submission results');
                 return;
             }
-            
-            // Save to sessionStorage for results page
-            sessionStorage.setItem('simulationResult', JSON.stringify(result));
-            sessionStorage.setItem('originalCode', result.code || '');
-            sessionStorage.setItem('ticks', (result.ticks || 0).toString());
 
-            // Navigate to results page
+            const source = await sourceRes.json();
+            const trace = await traceRes.json();
+
+            if (trace.error) {
+                alert('Simulation error: ' + trace.error);
+                return;
+            }
+
+            const result = { ...trace, code: source.code };
+            sessionStorage.setItem('simulationResult', JSON.stringify(result));
+            sessionStorage.setItem('originalCode', source.code || '');
+            sessionStorage.setItem('ticks', (trace.ticks || 0).toString());
+
             window.location.href = 'results.html';
 
         } catch (error) {
@@ -346,7 +368,7 @@ class SubmissionsPage {
 
     async loadSubmissions() {
         try {
-            const response = await fetch('/api/user-submissions');
+            const response = await fetch('/api/submission');
             if (response.ok) {
                 const data = await response.json();
                 this.submissions = data.submissions.map(sub => (
@@ -447,44 +469,29 @@ class SubmissionsPage {
 
     async viewSubmission(id) {
         try {
-            // Fetch full submission data from existing endpoint
-            let result = null;
-            let attempts = 0;
-            const maxAttempts = 15;
+            const [sourceRes, traceRes] = await Promise.all([
+                fetch(`/api/submission/${encodeURIComponent(id)}/source`),
+                fetch(`/api/submission/${encodeURIComponent(id)}/trace`),
+            ]);
 
-            while (attempts < maxAttempts) {
-                const response = await fetch(`/api/submission?ulid=${encodeURIComponent(id)}`);
-                
-                if (response.ok) {
-                    result = await response.json();
-                    break;
-                }
-                
-                if (response.status !== 404) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                attempts++;
-            }
-
-            if (!result) {
+            if (!sourceRes.ok || !traceRes.ok) {
                 alert('Submission not found or still processing');
                 return;
             }
 
-            // Check if result contains a simulator error
-            if (result.error) {
-                alert('Simulation error: ' + result.error);
+            const source = await sourceRes.json();
+            const trace = await traceRes.json();
+
+            if (trace.error) {
+                alert('Simulation error: ' + trace.error);
                 return;
             }
-            
-            // Save to sessionStorage for results page
-            sessionStorage.setItem('simulationResult', JSON.stringify(result));
-            sessionStorage.setItem('originalCode', result.code || '');
-            sessionStorage.setItem('ticks', (result.ticks || 0).toString());
 
-            // Navigate to results page
+            const result = { ...trace, code: source.code };
+            sessionStorage.setItem('simulationResult', JSON.stringify(result));
+            sessionStorage.setItem('originalCode', source.code || '');
+            sessionStorage.setItem('ticks', (trace.ticks || 0).toString());
+
             window.location.href = 'results.html';
 
         } catch (error) {

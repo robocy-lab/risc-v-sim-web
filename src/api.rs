@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use axum::extract::multipart::Field;
-use axum::extract::{Multipart, Query, State};
+use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -19,9 +19,19 @@ use crate::submission_actor::SubmissionTask;
 
 pub fn api_routes() -> Router<Arc<Config>> {
     Router::new()
-        .route("/submit", post(submit_handler))
-        .route("/submission", get(submission_handler))
-        .route("/user-submissions", get(user_submissions_handler))
+        .route(
+            "/submission",
+            post(create_submission_handler).get(list_submissions_handler),
+        )
+        .route("/submission/{ulid}", get(get_submission_handler))
+        .route(
+            "/submission/{ulid}/source",
+            get(get_submission_source_handler),
+        )
+        .route(
+            "/submission/{ulid}/trace",
+            get(get_submission_trace_handler),
+        )
         .route("/me", get(me_handler))
 }
 
@@ -29,39 +39,69 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
     Json(user)
 }
 
-async fn submission_handler(
+async fn get_submission_handler(
     State(config): State<Arc<Config>>,
-    submission: Query<SubmissionRequest>,
-) -> ApiResult<Box<serde_json::value::RawValue>> {
-    let submission = crate::submission_file(&config.actor_config, submission.ulid);
-    let content = match fs::read(submission).await {
-        Ok(x) => x,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(ApiError::submission_not_found());
-        }
+    Path(ulid): Path<Ulid>,
+) -> ApiResult<SubmissionRecord> {
+    let record = config
+        .db
+        .get_submission_by_uuid(ulid)
+        .await
+        .context("fetch")
+        .map_err(ApiError::internal_error)?;
+
+    match record {
+        Some(r) => Ok(Json(r)),
+        None => Err(ApiError::submission_not_found()),
+    }
+}
+
+async fn get_submission_source_handler(
+    State(config): State<Arc<Config>>,
+    Path(ulid): Path<Ulid>,
+) -> ApiResult<serde_json::Value> {
+    let content = read_simulation_file(&config, ulid).await?;
+    let json: serde_json::Value = serde_json::from_slice(&content)
+        .context("parsing")
+        .map_err(ApiError::internal_error)?;
+
+    let code = json.get("code").cloned().unwrap_or(serde_json::Value::Null);
+    Ok(Json(serde_json::json!({ "code": code })))
+}
+
+async fn get_submission_trace_handler(
+    State(config): State<Arc<Config>>,
+    Path(ulid): Path<Ulid>,
+) -> ApiResult<serde_json::Value> {
+    let content = read_simulation_file(&config, ulid).await?;
+    let mut json: serde_json::Value = serde_json::from_slice(&content)
+        .context("parsing")
+        .map_err(ApiError::internal_error)?;
+
+    if let serde_json::Value::Object(map) = &mut json {
+        map.remove("code");
+    }
+    Ok(Json(json))
+}
+
+async fn read_simulation_file(config: &Config, ulid: Ulid) -> Result<Vec<u8>, ApiError> {
+    let path = crate::submission_file(&config.actor_config, ulid);
+    match fs::read(path).await {
+        Ok(x) => Ok(x),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ApiError::submission_not_found()),
         Err(e) => {
             let cause = anyhow::Error::from(e).context("loading submission");
-            return Err(ApiError::internal_error(cause));
+            Err(ApiError::internal_error(cause))
         }
-    };
-
-    serde_json::from_slice(&content)
-        .context("parsing")
-        .map_err(ApiError::internal_error)
-        .map(Json)
+    }
 }
 
-#[derive(Deserialize)]
-pub struct SubmissionRequest {
-    ulid: Ulid,
-}
-
-async fn submit_handler(
+async fn create_submission_handler(
     State(config): State<Arc<Config>>,
     Extension(task_send): Extension<Sender<SubmissionTask>>,
     Extension(user): Extension<User>,
     multipart: Multipart,
-) -> ApiResult<SubmitResponse> {
+) -> ApiResult<CreateSubmissionResponse> {
     let ulid = Ulid::new();
     let user_id = user.id;
     let user_login = user.login;
@@ -93,11 +133,11 @@ async fn submit_handler(
         .context("send task")
         .map_err(ApiError::internal_error)?;
 
-    Ok(Json(SubmitResponse { ulid }))
+    Ok(Json(CreateSubmissionResponse { ulid }))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SubmitResponse {
+pub struct CreateSubmissionResponse {
     pub ulid: Ulid,
 }
 
@@ -139,7 +179,7 @@ async fn ticks_from_field(field: Field<'_>) -> anyhow::Result<u32> {
     Ok(ticks_str.parse()?)
 }
 
-async fn user_submissions_handler(
+async fn list_submissions_handler(
     State(config): State<Arc<Config>>,
     Extension(user): Extension<User>,
 ) -> ApiResult<UserSubmissionsResponse> {
