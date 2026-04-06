@@ -155,6 +155,26 @@ pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> 
 }
 
 #[allow(dead_code)]
+pub async fn get_submission_source(client: &Client, port: u16, submission_id: Ulid) -> Response {
+    let request_url = server_url(port)
+        .join(&format!("api/submission/{submission_id}/source"))
+        .unwrap();
+    let token = generate_test_token(
+        "123456",
+        "testuser",
+        "test_secret_key_for_integration_tests",
+    );
+    let cookie = format!("jwt={}", token);
+
+    client
+        .get(request_url)
+        .header("Cookie", cookie)
+        .send()
+        .await
+        .unwrap()
+}
+
+#[allow(dead_code)]
 pub fn server_url(port: u16) -> Url {
     let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
     Url::parse(&format!("http://{addr}")).unwrap()
