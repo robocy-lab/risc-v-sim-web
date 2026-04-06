@@ -137,7 +137,7 @@ pub async fn submit_program(
 #[allow(dead_code)]
 pub async fn get_submission(client: &Client, port: u16, submission_id: Ulid) -> Response {
     let request_url = server_url(port)
-        .join(&format!("api/submission/{submission_id}"))
+        .join(&format!("api/submission/{submission_id}/trace"))
         .unwrap();
     let token = generate_test_token(
         "123456",
