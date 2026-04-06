@@ -21,9 +21,9 @@ pub fn api_routes() -> Router<Arc<Config>> {
     Router::new()
         .route(
             "/submission",
-            post(submit_handler).get(user_submissions_handler),
+            post(create_get_submission_handler).get(list_submissions_handler),
         )
-        .route("/submission/{ulid}", get(submission_handler))
+        .route("/submission/{ulid}", get(get_submission_handler))
         .route("/me", get(me_handler))
 }
 
@@ -31,7 +31,7 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
     Json(user)
 }
 
-async fn submission_handler(
+async fn get_submission_handler(
     State(config): State<Arc<Config>>,
     Path(ulid): Path<Ulid>,
 ) -> ApiResult<serde_json::Value> {
@@ -53,12 +53,12 @@ async fn submission_handler(
         .map(Json)
 }
 
-async fn submit_handler(
+async fn create_get_submission_handler(
     State(config): State<Arc<Config>>,
     Extension(task_send): Extension<Sender<SubmissionTask>>,
     Extension(user): Extension<User>,
     multipart: Multipart,
-) -> ApiResult<SubmitResponse> {
+) -> ApiResult<CreateSubmissionResponse> {
     let ulid = Ulid::new();
     let user_id = user.id;
     let user_login = user.login;
@@ -90,11 +90,11 @@ async fn submit_handler(
         .context("send task")
         .map_err(ApiError::internal_error)?;
 
-    Ok(Json(SubmitResponse { ulid }))
+    Ok(Json(CreateSubmissionResponse { ulid }))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SubmitResponse {
+pub struct CreateSubmissionResponse {
     pub ulid: Ulid,
 }
 
@@ -136,7 +136,7 @@ async fn ticks_from_field(field: Field<'_>) -> anyhow::Result<u32> {
     Ok(ticks_str.parse()?)
 }
 
-async fn user_submissions_handler(
+async fn list_submissions_handler(
     State(config): State<Arc<Config>>,
     Extension(user): Extension<User>,
 ) -> ApiResult<UserSubmissionsResponse> {
