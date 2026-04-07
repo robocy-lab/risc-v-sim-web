@@ -179,17 +179,13 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
 }
 
 async fn verify_submission_trace(submission_response: SubmissionResponse, source_path: &Path) {
+    info!("Checking trace VS actual run of risc-v-sim");
     let mut filename = PathBuf::from(source_path.file_name().unwrap());
     filename.set_extension("json");
     let mut path = PathBuf::from("traces");
     path.push(filename);
 
-    let data = match fs::read(&path).await {
-        Ok(d) => d,
-        Err(e) => panic!("Failed to read reference trace: {e}"),
-    };
-
-    info!("Checking trace VS reference file");
+    let data = fs::read(path).await.unwrap();
     let actual_trace: serde_json::Value = serde_json::from_slice(&data).unwrap();
     let actual_trace = actual_trace.as_object().unwrap();
     let actual_steps = &actual_trace["steps"];
