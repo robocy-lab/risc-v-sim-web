@@ -92,12 +92,16 @@ async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: S
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
 
-    let source_json = serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
+    let source_json =
+        serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
     let (final_status, trace_json) = match sim_res {
         Ok(trace) => (SubmissionStatus::Completed, trace),
         Err(e) => {
             tracing::error!("simulation failed: {e:#}");
-            (SubmissionStatus::Completed, serde_json::json!({ "error": format!("{e:?}") }).to_string())
+            (
+                SubmissionStatus::Completed,
+                serde_json::json!({ "error": format!("{e:?}") }).to_string(),
+            )
         }
     };
 
