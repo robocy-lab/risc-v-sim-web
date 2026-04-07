@@ -12,9 +12,7 @@ use tracing::{Instrument, info_span};
 
 use crate::database::DbClient;
 use auth::{AuthConfig, auth_middleware};
-use submission_actor::{
-    Config as ActorConfig, SubmissionTask, run_submission_actor, submission_file,
-};
+use submission_actor::{Config as ActorConfig, SubmissionTask, run_submission_actor};
 
 pub struct Config {
     pub actor_config: ActorConfig,
@@ -37,10 +35,13 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
     )
     .instrument(info_span!("submission_actor"));
 
+    let submissions_dir = ServeDir::new(&config.actor_config.submissions_folder);
+
     let router = Router::new()
         .nest(
             "/api",
             api::api_routes()
+                .nest_service("/files", submissions_dir)
                 .layer(Extension(task_send))
                 .with_state(config.clone())
                 .layer(middleware::from_fn_with_state(
