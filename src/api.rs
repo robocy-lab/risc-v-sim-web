@@ -4,12 +4,10 @@ use anyhow::Context;
 use axum::extract::multipart::Field;
 use axum::extract::{Multipart, Path, State};
 use axum::http::StatusCode;
-use axum::http::header;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 use tokio::sync::mpsc::Sender;
 use ulid::Ulid;
 
@@ -25,14 +23,6 @@ pub fn api_routes() -> Router<Arc<Config>> {
             post(create_submission_handler).get(list_submissions_handler),
         )
         .route("/submission/{ulid}", get(get_submission_handler))
-        .route(
-            "/submission/{ulid}/source",
-            get(get_submission_source_handler),
-        )
-        .route(
-            "/submission/{ulid}/trace",
-            get(get_submission_trace_handler),
-        )
         .route("/me", get(me_handler))
 }
 
@@ -54,47 +44,6 @@ async fn get_submission_handler(
     match record {
         Some(r) => Ok(Json(r)),
         None => Err(ApiError::submission_not_found()),
-    }
-}
-
-async fn get_submission_source_handler(
-    State(config): State<Arc<Config>>,
-    Path(ulid): Path<Ulid>,
-) -> ApiResult<serde_json::Value> {
-    let bytes = read_source_file(&config, ulid).await?;
-    let code = String::from_utf8_lossy(&bytes).into_owned();
-    Ok(Json(serde_json::json!({ "code": code })))
-}
-
-async fn get_submission_trace_handler(
-    State(config): State<Arc<Config>>,
-    Path(ulid): Path<Ulid>,
-) -> Result<impl IntoResponse, ApiError> {
-    let content = read_simulation_file(&config, ulid).await?;
-    Ok(([(header::CONTENT_TYPE, "application/json")], content))
-}
-
-async fn read_simulation_file(config: &Config, ulid: Ulid) -> Result<Vec<u8>, ApiError> {
-    let path = crate::submission_file(&config.actor_config, ulid);
-    match fs::read(path).await {
-        Ok(x) => Ok(x),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ApiError::submission_not_found()),
-        Err(e) => {
-            let cause = anyhow::Error::from(e).context("loading submission");
-            Err(ApiError::internal_error(cause))
-        }
-    }
-}
-
-async fn read_source_file(config: &Config, ulid: Ulid) -> Result<Vec<u8>, ApiError> {
-    let path = crate::submission_dir(&config.actor_config, ulid).join("input.s");
-    match fs::read(path).await {
-        Ok(x) => Ok(x),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ApiError::submission_not_found()),
-        Err(e) => {
-            let cause = anyhow::Error::from(e).context("loading source");
-            Err(ApiError::internal_error(cause))
-        }
     }
 }
 

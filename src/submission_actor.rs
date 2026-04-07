@@ -91,19 +91,21 @@ async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: S
         .await;
 
     let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
-    let file_path = submission_file(config.as_ref(), task.ulid);
 
-    let (final_status, to_write) = match sim_res {
+    let source_json = serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
+    let (final_status, trace_json) = match sim_res {
         Ok(trace) => (SubmissionStatus::Completed, trace),
         Err(e) => {
             tracing::error!("simulation failed: {e:#}");
-            let error_json = serde_json::json!({ "error": format!("{e:?}") }).to_string();
-            (SubmissionStatus::Completed, error_json)
+            (SubmissionStatus::Completed, serde_json::json!({ "error": format!("{e:?}") }).to_string())
         }
     };
 
-    if let Err(err) = fs::write(&file_path, to_write).await {
-        tracing::error!("Failed to write submission task result: {err:#}");
+    if let Err(err) = fs::write(submission_file(config.as_ref(), task.ulid), trace_json).await {
+        tracing::error!("Failed to write trace: {err:#}");
+    }
+    if let Err(err) = fs::write(source_file(config.as_ref(), task.ulid), source_json).await {
+        tracing::error!("Failed to write source: {err:#}");
     }
 
     db_service
@@ -120,12 +122,11 @@ pub fn submission_dir(config: &Config, ulid: Ulid) -> PathBuf {
 }
 
 pub fn submission_file(config: &Config, ulid: Ulid) -> PathBuf {
-    let mut buf = [0u8; ULID_LEN];
-    let ulid_str = ulid.array_to_str(&mut buf);
-    let mut path = config.submissions_folder.clone();
-    path.extend([&ulid_str, "simulation.json"]);
+    submission_dir(config, ulid).join("trace.json")
+}
 
-    path
+pub fn source_file(config: &Config, ulid: Ulid) -> PathBuf {
+    submission_dir(config, ulid).join("source.json")
 }
 
 async fn compile_s_to_elf(
