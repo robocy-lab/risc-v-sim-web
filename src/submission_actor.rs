@@ -1,6 +1,5 @@
 use anyhow::Context;
 use bytes::Bytes;
-use serde_json::json;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
@@ -64,7 +63,7 @@ async fn simulate(
     ulid: Ulid,
     source_code: bytes::Bytes,
     ticks: u32,
-) -> anyhow::Result<serde_json::Value> {
+) -> anyhow::Result<String> {
     let submission_dir = submission_dir(config, ulid);
     future_with_timeout(
         Duration::from_secs(5),
@@ -73,22 +72,11 @@ async fn simulate(
     .await
     .context("compilation")?;
 
-    let stdout = future_with_timeout(
+    future_with_timeout(
         Duration::from_secs(10),
         run_simulator(config, &submission_dir, ticks),
     )
-    .await?;
-
-    let mut json = serde_json::from_str(&stdout).context("parse simulation output")?;
-    if let serde_json::Value::Object(map) = &mut json {
-        map.insert("ulid".to_string(), json!(ulid));
-        map.insert("ticks".to_string(), json!(ticks));
-        map.insert(
-            "code".to_string(),
-            json!(String::from_utf8_lossy(&source_code)),
-        );
-    }
-    Ok(json)
+    .await
 }
 
 async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: SubmissionTask) {
@@ -106,29 +94,15 @@ async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: S
     let file_path = submission_file(config.as_ref(), task.ulid);
 
     let (final_status, to_write) = match sim_res {
-        Ok(mut json) => {
-            if let serde_json::Value::Object(map) = &mut json {
-                if !map.contains_key("ulid") {
-                    map.insert("ulid".to_string(), json!(task.ulid));
-                }
-            }
-            (SubmissionStatus::Completed, json)
-        }
+        Ok(trace) => (SubmissionStatus::Completed, trace),
         Err(e) => {
             tracing::error!("simulation failed: {e:#}");
-            (
-                SubmissionStatus::Completed,
-                serde_json::json!({
-                    "error": format!("{e:?}"),
-                    "ulid": task.ulid,
-                    "ticks": task.ticks,
-                    "code": String::from_utf8_lossy(&task.source_code)
-                }),
-            )
+            let error_json = serde_json::json!({ "error": format!("{e:?}") }).to_string();
+            (SubmissionStatus::Completed, error_json)
         }
     };
 
-    if let Err(err) = fs::write(&file_path, to_write.to_string()).await {
+    if let Err(err) = fs::write(&file_path, to_write).await {
         tracing::error!("Failed to write submission task result: {err:#}");
     }
 

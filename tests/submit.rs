@@ -21,8 +21,6 @@ struct SubmitResponse {
 
 #[derive(serde::Deserialize)]
 struct SubmissionResponse {
-    pub ulid: Ulid,
-    pub ticks: u32,
     pub steps: serde_json::Value,
 }
 
@@ -171,8 +169,6 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
     info!("Waited for {:.2} seconds", dur.as_secs_f32());
 
     let submission_response = parse_response_json::<SubmissionResponse>(submission_response).await;
-    assert_eq!(submission_response.ulid, submit_response.ulid);
-    assert_eq!(submission_response.ticks, ticks);
 
     let source_response = get_submission_source(&client, port, submit_response.ulid).await;
     assert_eq!(source_response.status(), reqwest::StatusCode::OK);
@@ -183,13 +179,17 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
 }
 
 async fn verify_submission_trace(submission_response: SubmissionResponse, source_path: &Path) {
-    info!("Checking trace VS actual run of risc-v-sim");
     let mut filename = PathBuf::from(source_path.file_name().unwrap());
     filename.set_extension("json");
     let mut path = PathBuf::from("traces");
     path.push(filename);
 
-    let data = fs::read(path).await.unwrap();
+    let data = match fs::read(&path).await {
+        Ok(d) => d,
+        Err(e) => panic!("Failed to read reference trace: {e}"),
+    };
+
+    info!("Checking trace VS reference file");
     let actual_trace: serde_json::Value = serde_json::from_slice(&data).unwrap();
     let actual_trace = actual_trace.as_object().unwrap();
     let actual_steps = &actual_trace["steps"];
