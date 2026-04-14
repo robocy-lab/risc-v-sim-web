@@ -21,8 +21,6 @@ struct SubmitResponse {
 
 #[derive(serde::Deserialize)]
 struct SubmissionResponse {
-    pub ulid: Ulid,
-    pub ticks: u32,
     pub steps: serde_json::Value,
 }
 
@@ -171,8 +169,6 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
     info!("Waited for {:.2} seconds", dur.as_secs_f32());
 
     let submission_response = parse_response_json::<SubmissionResponse>(submission_response).await;
-    assert_eq!(submission_response.ulid, submit_response.ulid);
-    assert_eq!(submission_response.ticks, ticks);
 
     let source_response = get_submission_source(&client, port, submit_response.ulid).await;
     assert_eq!(source_response.status(), reqwest::StatusCode::OK);

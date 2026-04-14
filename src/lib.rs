@@ -12,9 +12,7 @@ use tracing::{Instrument, info_span};
 
 use crate::database::DbClient;
 use auth::{AuthConfig, auth_middleware};
-use submission_actor::{
-    Config as ActorConfig, SubmissionTask, run_submission_actor, submission_file,
-};
+use submission_actor::{Config as ActorConfig, SubmissionTask, run_submission_actor};
 
 pub struct Config {
     pub actor_config: ActorConfig,

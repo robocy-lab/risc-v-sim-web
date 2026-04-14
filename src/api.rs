@@ -1,21 +1,23 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
+use axum::body::Body;
 use axum::extract::multipart::Field;
 use axum::extract::{Multipart, Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 use tokio::sync::mpsc::Sender;
+use tokio_util::io::ReaderStream;
 use ulid::Ulid;
 
 use crate::Config;
 use crate::auth::User;
 use crate::database::SubmissionRecord;
-use crate::submission_actor::SubmissionTask;
+use crate::submission_actor::{SubmissionTask, source_file, submission_file};
 
 pub fn api_routes() -> Router<Arc<Config>> {
     Router::new()
@@ -25,14 +27,47 @@ pub fn api_routes() -> Router<Arc<Config>> {
         )
         .route("/submission/{ulid}", get(get_submission_handler))
         .route(
-            "/submission/{ulid}/source",
-            get(get_submission_source_handler),
-        )
-        .route(
             "/submission/{ulid}/trace",
             get(get_submission_trace_handler),
         )
+        .route(
+            "/submission/{ulid}/source",
+            get(get_submission_source_handler),
+        )
         .route("/me", get(me_handler))
+}
+
+async fn get_submission_trace_handler(
+    State(config): State<Arc<Config>>,
+    Path(ulid): Path<Ulid>,
+) -> Response {
+    serve_file(
+        submission_file(&config.actor_config, ulid),
+        "application/json",
+    )
+    .await
+}
+
+async fn get_submission_source_handler(
+    State(config): State<Arc<Config>>,
+    Path(ulid): Path<Ulid>,
+) -> Response {
+    serve_file(source_file(&config.actor_config, ulid), "application/json").await
+}
+
+async fn serve_file(path: PathBuf, content_type: &'static str) -> Response {
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    let stream = ReaderStream::with_capacity(file, 16 * 1024);
+    let mut res = Response::new(Body::from_stream(stream));
+    res.headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    res
 }
 
 async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
@@ -53,46 +88,6 @@ async fn get_submission_handler(
     match record {
         Some(r) => Ok(Json(r)),
         None => Err(ApiError::submission_not_found()),
-    }
-}
-
-async fn get_submission_source_handler(
-    State(config): State<Arc<Config>>,
-    Path(ulid): Path<Ulid>,
-) -> ApiResult<serde_json::Value> {
-    let content = read_simulation_file(&config, ulid).await?;
-    let json: serde_json::Value = serde_json::from_slice(&content)
-        .context("parsing")
-        .map_err(ApiError::internal_error)?;
-
-    let code = json.get("code").cloned().unwrap_or(serde_json::Value::Null);
-    Ok(Json(serde_json::json!({ "code": code })))
-}
-
-async fn get_submission_trace_handler(
-    State(config): State<Arc<Config>>,
-    Path(ulid): Path<Ulid>,
-) -> ApiResult<serde_json::Value> {
-    let content = read_simulation_file(&config, ulid).await?;
-    let mut json: serde_json::Value = serde_json::from_slice(&content)
-        .context("parsing")
-        .map_err(ApiError::internal_error)?;
-
-    if let serde_json::Value::Object(map) = &mut json {
-        map.remove("code");
-    }
-    Ok(Json(json))
-}
-
-async fn read_simulation_file(config: &Config, ulid: Ulid) -> Result<Vec<u8>, ApiError> {
-    let path = crate::submission_file(&config.actor_config, ulid);
-    match fs::read(path).await {
-        Ok(x) => Ok(x),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ApiError::submission_not_found()),
-        Err(e) => {
-            let cause = anyhow::Error::from(e).context("loading submission");
-            Err(ApiError::internal_error(cause))
-        }
     }
 }
 

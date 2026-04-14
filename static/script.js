@@ -170,8 +170,8 @@ class RISCVSimulator {
             }
 
             const [sourceRes, traceRes] = await Promise.all([
-                fetch(`/api/submission/${encodeURIComponent(ulid)}/source`),
-                fetch(`/api/submission/${encodeURIComponent(ulid)}/trace`),
+                fetch(`/api/files/${encodeURIComponent(ulid)}/source.json`),
+                fetch(`/api/files/${encodeURIComponent(ulid)}/trace.json`),
             ]);
 
             if (!sourceRes.ok || !traceRes.ok) {
@@ -317,8 +317,8 @@ class RISCVSimulator {
             }
 
             const [sourceRes, traceRes] = await Promise.all([
-                fetch(`/api/submission/${encodeURIComponent(id)}/source`),
-                fetch(`/api/submission/${encodeURIComponent(id)}/trace`),
+                fetch(`/api/files/${encodeURIComponent(id)}/source.json`),
+                fetch(`/api/files/${encodeURIComponent(id)}/trace.json`),
             ]);
 
             if (!sourceRes.ok || !traceRes.ok) {
@@ -470,8 +470,8 @@ class SubmissionsPage {
     async viewSubmission(id) {
         try {
             const [sourceRes, traceRes] = await Promise.all([
-                fetch(`/api/submission/${encodeURIComponent(id)}/source`),
-                fetch(`/api/submission/${encodeURIComponent(id)}/trace`),
+                fetch(`/api/files/${encodeURIComponent(id)}/source.json`),
+                fetch(`/api/files/${encodeURIComponent(id)}/trace.json`),
             ]);
 
             if (!sourceRes.ok || !traceRes.ok) {

@@ -34,6 +34,7 @@ reqwest = { version = "0.12", features = ["json"] }
 mongodb = { version = "3.5.1", features = ["bson-3"] }
 rand = "0.8"
 futures-util = "0.3"
+tokio-util = { version = "0.7", features = ["io"] }
 time = { version = "0.3.47", features = ["serde"] }
 
 [dev-dependencies]
