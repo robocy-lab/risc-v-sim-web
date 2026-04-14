@@ -1,9 +1,10 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Context;
 use axum::extract::multipart::Field;
 use axum::extract::{Multipart, Path, State};
-use axum::http::StatusCode;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -14,7 +15,7 @@ use ulid::Ulid;
 use crate::Config;
 use crate::auth::User;
 use crate::database::SubmissionRecord;
-use crate::submission_actor::SubmissionTask;
+use crate::submission_actor::{SubmissionTask, source_file, submission_file};
 
 pub fn api_routes() -> Router<Arc<Config>> {
     Router::new()
@@ -23,7 +24,42 @@ pub fn api_routes() -> Router<Arc<Config>> {
             post(create_submission_handler).get(list_submissions_handler),
         )
         .route("/submission/{ulid}", get(get_submission_handler))
+        .route(
+            "/submission/{ulid}/trace",
+            get(get_submission_trace_handler),
+        )
+        .route(
+            "/submission/{ulid}/source",
+            get(get_submission_source_handler),
+        )
         .route("/me", get(me_handler))
+}
+
+async fn get_submission_trace_handler(
+    State(config): State<Arc<Config>>,
+    Path(ulid): Path<Ulid>,
+) -> Response {
+    serve_file(submission_file(&config.actor_config, ulid)).await
+}
+
+async fn get_submission_source_handler(
+    State(config): State<Arc<Config>>,
+    Path(ulid): Path<Ulid>,
+) -> Response {
+    serve_file(source_file(&config.actor_config, ulid)).await
+}
+
+async fn serve_file(path: PathBuf) -> Response {
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            bytes,
+        )
+            .into_response(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 async fn me_handler(Extension(user): Extension<User>) -> Json<User> {

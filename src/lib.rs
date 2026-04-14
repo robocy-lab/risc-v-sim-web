@@ -35,13 +35,10 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
     )
     .instrument(info_span!("submission_actor"));
 
-    let submissions_dir = ServeDir::new(&config.actor_config.submissions_folder);
-
     let router = Router::new()
         .nest(
             "/api",
             api::api_routes()
-                .nest_service("/files", submissions_dir)
                 .layer(Extension(task_send))
                 .with_state(config.clone())
                 .layer(middleware::from_fn_with_state(
