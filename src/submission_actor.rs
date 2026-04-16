@@ -63,7 +63,8 @@ async fn simulate(
     ulid: Ulid,
     source_code: bytes::Bytes,
     ticks: u32,
-) -> anyhow::Result<String> {
+    out_path: &Path,
+) -> anyhow::Result<()> {
     let submission_dir = submission_dir(config, ulid);
     future_with_timeout(
         Duration::from_secs(5),
@@ -74,7 +75,7 @@ async fn simulate(
 
     future_with_timeout(
         Duration::from_secs(10),
-        run_simulator(config, &submission_dir, ticks),
+        run_simulator(config, &submission_dir, ticks, out_path),
     )
     .await
 }
@@ -90,24 +91,28 @@ async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: S
         .update_submission_status(task.ulid, SubmissionStatus::InProgress)
         .await;
 
-    let sim_res = simulate(&config, task.ulid, task.source_code.clone(), task.ticks).await;
+    let trace_file = submission_file(config.as_ref(), task.ulid);
+    let trace_file = trace_file.as_path();
+    let sim_res = simulate(
+        &config,
+        task.ulid,
+        task.source_code.clone(),
+        task.ticks,
+        trace_file,
+    )
+    .await;
 
     let source_json =
         serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
-    let (final_status, trace_json) = match sim_res {
-        Ok(trace) => (SubmissionStatus::Completed, trace),
+
+    let final_status = match sim_res {
+        Ok(()) => SubmissionStatus::Completed,
         Err(e) => {
             tracing::error!("simulation failed: {e:#}");
-            (
-                SubmissionStatus::Completed,
-                serde_json::json!({ "error": format!("{e:?}") }).to_string(),
-            )
+            SubmissionStatus::Completed
         }
     };
 
-    if let Err(err) = fs::write(submission_file(config.as_ref(), task.ulid), trace_json).await {
-        tracing::error!("Failed to write trace: {err:#}");
-    }
     if let Err(err) = fs::write(source_file(config.as_ref(), task.ulid), source_json).await {
         tracing::error!("Failed to write source: {err:#}");
     }
@@ -186,21 +191,25 @@ async fn run_simulator(
     config: &Config,
     submission_dir: &Path,
     ticks: u32,
-) -> anyhow::Result<String> {
+    out_path: &Path,
+) -> anyhow::Result<()> {
     tracing::info!("Simulating...");
 
+    let file = fs::File::create(out_path).await?;
+
     let elf_path = submission_dir.join("output.elf");
-    let output = Command::new(&config.simulator_binary)
+    let mut child = Command::new(&config.simulator_binary)
         .arg("--ticks")
         .arg(ticks.to_string())
         .arg("--path")
         .arg(&elf_path)
+        .stdout(file.into_std().await)
         .kill_on_drop(true)
-        .output()
-        .await
+        .spawn()
         .context("simulating")?;
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    child.wait().await?;
+    Ok(())
 }
 
 #[cfg(test)]
