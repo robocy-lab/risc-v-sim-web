@@ -109,14 +109,6 @@ async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: S
         Ok(()) => SubmissionStatus::Completed,
         Err(e) => {
             tracing::error!("simulation failed: {e:#}");
-            if let Err(err) = fs::write(
-                trace_file,
-                serde_json::json!({ "error": format!("{e:?}") }).to_string(),
-            )
-            .await
-            {
-                tracing::error!("Failed to write trace: {err:#}");
-            }
             SubmissionStatus::Completed
         }
     };
