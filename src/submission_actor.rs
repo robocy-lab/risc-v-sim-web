@@ -3,9 +3,7 @@ use bytes::Bytes;
 use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Stdio;
 use tokio::fs;
-use tokio::io;
 
 use crate::database::{DbClient, SubmissionStatus};
 use std::sync::Arc;
@@ -205,21 +203,18 @@ async fn run_simulator(
 ) -> anyhow::Result<()> {
     tracing::info!("Simulating...");
 
+    let file = fs::File::create(out_path).await?;
+
     let elf_path = submission_dir.join("output.elf");
     let mut child = Command::new(&config.simulator_binary)
         .arg("--ticks")
         .arg(ticks.to_string())
         .arg("--path")
         .arg(&elf_path)
-        .stdout(Stdio::piped())
+        .stdout(file.into_std().await)
         .kill_on_drop(true)
         .spawn()
         .context("simulating")?;
-
-    let mut stdout = child.stdout.take().context("no stdout")?;
-    let mut file = fs::File::create(out_path).await?;
-
-    io::copy(&mut stdout, &mut file).await?;
 
     child.wait().await?;
     Ok(())
