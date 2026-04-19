@@ -3,6 +3,7 @@ pub mod auth;
 pub mod database;
 pub mod submission_actor;
 
+use anyhow::Context;
 use axum::{Router, body::Body, http::Request, middleware, routing::get};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
@@ -12,19 +13,28 @@ use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{Instrument, info_span};
 
 use crate::database::DbClient;
-use auth::{AuthConfig, auth_middleware};
+use auth::auth_middleware;
 use submission_actor::{Config as ActorConfig, SubmissionTask, run_submission_actor};
 
 pub struct Config {
     pub actor_config: ActorConfig,
-    pub auth_config: AuthConfig,
+
+    /* Auth configuration */
+    pub client_id: String,
+    pub client_secret: String,
+    pub jwt_secret: String,
+    pub auth_url: String,
+    pub token_url: String,
+
+    /* Db configuration */
     pub mongo_uri: String,
     pub db_name: String,
 }
 
 pub struct AppState {
     pub actor_config: ActorConfig,
-    pub auth_config: AuthConfig,
+    pub jwt_secret: String,
+    pub oauth_client: oauth2::basic::BasicClient,
     pub db: Arc<DbClient>,
     pub task_send: Sender<SubmissionTask>,
 }
@@ -38,13 +48,24 @@ pub async fn run(
     listener: TcpListener,
     cfg: Config,
 ) -> anyhow::Result<()> {
+    let auth_url = oauth2::AuthUrl::new(cfg.auth_url).context("make auth_url")?;
+    let token_url = oauth2::TokenUrl::new(cfg.token_url).context("make token_url")?;
+
+    let oauth_client = oauth2::basic::BasicClient::new(
+        oauth2::ClientId::new(cfg.client_id),
+        Some(oauth2::ClientSecret::new(cfg.client_secret)),
+        auth_url,
+        Some(token_url),
+    );
+
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
     let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
     let state = Arc::new(AppState {
         actor_config: cfg.actor_config,
-        auth_config: cfg.auth_config,
         db: Arc::new(db_client),
         task_send,
+        jwt_secret: cfg.jwt_secret,
+        oauth_client,
     });
 
     let submission_actor = run_submission_actor(

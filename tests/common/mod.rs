@@ -67,17 +67,6 @@ async fn make_listener() -> (u16, TcpListener) {
 
 #[allow(dead_code)]
 pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
-    let jwt_secret = "test_secret_key_for_integration_tests";
-    let auth_state = risc_v_sim_web::auth::AuthConfig {
-        oauth_client: oauth2::Client::new(
-            oauth2::ClientId::new("test_client_id".to_string()),
-            Some(oauth2::ClientSecret::new("test_client_secret".to_string())),
-            oauth2::AuthUrl::new("https://example.com/auth".to_string()).unwrap(),
-            Some(oauth2::TokenUrl::new("https://example.com/token".to_string()).unwrap()),
-        ),
-        jwt_secret: jwt_secret.to_string(),
-    };
-
     risc_v_sim_web::Config {
         actor_config: risc_v_sim_web::submission_actor::Config {
             as_binary: std::env::var("AS_BINARY")
@@ -93,9 +82,13 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
             ticks_max: 15,
             codesize_max: 256,
         },
-        auth_config: auth_state,
         mongo_uri: TEST_MONGO_URI.to_string(),
         db_name: TEST_DB_NAME.to_string(),
+        client_id: "test_client_id".to_string(),
+        client_secret: "test_client_secret".to_string(),
+        jwt_secret: "test_secret_key_for_integration_tests".to_string(),
+        auth_url: "https://example.com/auth".to_string(),
+        token_url: "https://example.com/token".to_string(),
     }
 }
 

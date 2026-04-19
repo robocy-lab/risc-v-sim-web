@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tracing::{Level, info};
 
@@ -15,11 +16,15 @@ async fn main() -> anyhow::Result<()> {
 
     let ticks_max: u32 = std::env::var("TICKS_MAX")?.parse()?;
     let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
-    let auth_state = risc_v_sim_web::auth::create_auth_config()?;
 
     let mongo_uri =
         std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
     let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
+
+    let client_id = std::env::var("GITHUB_CLIENT_ID").context("GITHUB_CLIENT_ID not set")?;
+    let client_secret =
+        std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
+    let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
@@ -41,9 +46,13 @@ async fn main() -> anyhow::Result<()> {
                 ticks_max,
                 codesize_max,
             },
-            auth_config: auth_state,
             mongo_uri,
             db_name,
+            client_id,
+            client_secret,
+            jwt_secret,
+            auth_url: "https://github.com/login/oauth/authorize".to_string(),
+            token_url: "https://github.com/login/oauth/access_token".to_string(),
         },
     )
     .await
