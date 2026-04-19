@@ -4,6 +4,7 @@ use std::future::Future;
 use std::path::Path;
 use std::path::PathBuf;
 use tokio::fs;
+use tracing::instrument;
 
 use crate::database::{DbClient, SubmissionStatus};
 use std::sync::Arc;
@@ -12,8 +13,21 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::timeout;
-use tracing::Instrument;
 use ulid::{ULID_LEN, Ulid};
+
+pub fn submission_file(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
+    submission_dir(submissions_folder, ulid).join("trace.json")
+}
+
+pub fn source_file(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
+    submission_dir(submissions_folder, ulid).join("source.json")
+}
+
+pub fn submission_dir(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
+    let mut buf = [0u8; ULID_LEN];
+    let ulid_str = ulid.array_to_str(&mut buf);
+    submissions_folder.join(&ulid_str)
+}
 
 #[derive(Debug)]
 pub struct SubmissionTask {
@@ -23,28 +37,112 @@ pub struct SubmissionTask {
     pub user_id: i64,
 }
 
-#[derive(Clone)]
-pub struct Config {
-    pub as_binary: PathBuf,
-    pub ld_binary: PathBuf,
-    pub simulator_binary: PathBuf,
-    pub submissions_folder: PathBuf,
-    pub ticks_max: u32,
-    pub codesize_max: u32,
+pub struct SubmissionActor {
+    tasks: Receiver<SubmissionTask>,
+    internal: Arc<InternalShare>,
 }
 
-pub async fn run_submission_actor(
-    config: Arc<Config>,
-    db_service: Arc<DbClient>,
-    mut tasks: Receiver<SubmissionTask>,
-) {
-    while let Some(task) = tasks.recv().await {
-        let ulid = task.ulid;
-        tracing::debug!(ulid=%ulid, "Received task");
-        tokio::spawn(
-            submission_task(config.clone(), db_service.clone(), task)
-                .instrument(tracing::info_span!("submission_task", ulid=%ulid)),
-        );
+struct InternalShare {
+    db_client: Arc<DbClient>,
+    as_binary: PathBuf,
+    ld_binary: PathBuf,
+    simulator_binary: PathBuf,
+    submissions_folder: PathBuf,
+}
+
+impl SubmissionActor {
+    pub fn new(
+        tasks: Receiver<SubmissionTask>,
+        db_client: Arc<DbClient>,
+        as_binary: PathBuf,
+        ld_binary: PathBuf,
+        simulator_binary: PathBuf,
+        submissions_folder: PathBuf,
+    ) -> Self {
+        SubmissionActor {
+            tasks,
+            internal: Arc::new(InternalShare {
+                db_client,
+                as_binary,
+                ld_binary,
+                simulator_binary,
+                submissions_folder,
+            }),
+        }
+    }
+
+    #[instrument(name = "submission_actor", skip(self))]
+    pub async fn run(mut self) {
+        while let Some(task) = self.tasks.recv().await {
+            let ulid = task.ulid;
+            tracing::debug!(ulid=%ulid, "Received task");
+            let run = SubmissionTaskRun {
+                task,
+                internal: self.internal.clone(),
+            };
+            tokio::spawn(run.run());
+        }
+    }
+}
+
+struct SubmissionTaskRun {
+    task: SubmissionTask,
+    internal: Arc<InternalShare>,
+}
+
+impl SubmissionTaskRun {
+    #[instrument(name = "submission_task", skip(self), fields(ulid=%self.task.ulid))]
+    async fn run(self) {
+        let SubmissionTaskRun { task, internal } = self;
+
+        let sub_dir = submission_dir(&internal.submissions_folder, task.ulid);
+        if let Err(err) = fs::create_dir_all(&sub_dir).await {
+            tracing::error!("Can't create submission_dir: {err:#}");
+            return;
+        }
+
+        internal
+            .db_client
+            .update_submission_status(task.ulid, SubmissionStatus::InProgress)
+            .await;
+
+        let trace_file = submission_file(&internal.submissions_folder, task.ulid);
+        let trace_file = trace_file.as_path();
+        let sim_res = simulate(
+            &internal,
+            task.ulid,
+            task.source_code.clone(),
+            task.ticks,
+            trace_file,
+        )
+        .await;
+
+        let source_json =
+            serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
+
+        let final_status = match sim_res {
+            Ok(()) => SubmissionStatus::Completed,
+            Err(e) => {
+                tracing::error!("simulation failed: {e:#}");
+                SubmissionStatus::Completed
+            }
+        };
+
+        if let Err(err) = fs::write(
+            source_file(&internal.submissions_folder, task.ulid),
+            source_json,
+        )
+        .await
+        {
+            tracing::error!("Failed to write source: {err:#}");
+        }
+
+        internal
+            .db_client
+            .update_submission_status(task.ulid, final_status)
+            .await;
+
+        tracing::info!(status=?final_status, "Complete");
     }
 }
 
@@ -59,13 +157,13 @@ async fn future_with_timeout<T>(
 }
 
 async fn simulate(
-    config: &Config,
+    config: &InternalShare,
     ulid: Ulid,
     source_code: bytes::Bytes,
     ticks: u32,
     out_path: &Path,
 ) -> anyhow::Result<()> {
-    let submission_dir = submission_dir(config, ulid);
+    let submission_dir = submission_dir(&config.submissions_folder, ulid);
     future_with_timeout(
         Duration::from_secs(5),
         compile_s_to_elf(config, &source_code, &submission_dir),
@@ -80,66 +178,8 @@ async fn simulate(
     .await
 }
 
-async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: SubmissionTask) {
-    let sub_dir = submission_dir(&config, task.ulid);
-    if let Err(err) = fs::create_dir_all(&sub_dir).await {
-        tracing::error!("Can't create submission_dir: {err:#}");
-        return;
-    }
-
-    db_service
-        .update_submission_status(task.ulid, SubmissionStatus::InProgress)
-        .await;
-
-    let trace_file = submission_file(config.as_ref(), task.ulid);
-    let trace_file = trace_file.as_path();
-    let sim_res = simulate(
-        &config,
-        task.ulid,
-        task.source_code.clone(),
-        task.ticks,
-        trace_file,
-    )
-    .await;
-
-    let source_json =
-        serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
-
-    let final_status = match sim_res {
-        Ok(()) => SubmissionStatus::Completed,
-        Err(e) => {
-            tracing::error!("simulation failed: {e:#}");
-            SubmissionStatus::Completed
-        }
-    };
-
-    if let Err(err) = fs::write(source_file(config.as_ref(), task.ulid), source_json).await {
-        tracing::error!("Failed to write source: {err:#}");
-    }
-
-    db_service
-        .update_submission_status(task.ulid, final_status)
-        .await;
-
-    tracing::info!(status=?final_status, "Complete");
-}
-
-pub fn submission_dir(config: &Config, ulid: Ulid) -> PathBuf {
-    let mut buf = [0u8; ULID_LEN];
-    let ulid_str = ulid.array_to_str(&mut buf);
-    config.submissions_folder.join(&ulid_str)
-}
-
-pub fn submission_file(config: &Config, ulid: Ulid) -> PathBuf {
-    submission_dir(config, ulid).join("trace.json")
-}
-
-pub fn source_file(config: &Config, ulid: Ulid) -> PathBuf {
-    submission_dir(config, ulid).join("source.json")
-}
-
 async fn compile_s_to_elf(
-    config: &Config,
+    config: &InternalShare,
     s_content: &[u8],
     submission_dir: impl AsRef<Path>,
 ) -> anyhow::Result<()> {
@@ -188,7 +228,7 @@ async fn compile_s_to_elf(
 }
 
 async fn run_simulator(
-    config: &Config,
+    config: &InternalShare,
     submission_dir: &Path,
     ticks: u32,
     out_path: &Path,
@@ -218,18 +258,11 @@ mod tests {
 
     #[test]
     fn test_path_utils() {
-        let config = Config {
-            as_binary: "dummy".into(),
-            ld_binary: "dummy".into(),
-            simulator_binary: "dummy".into(),
-            submissions_folder: "submissions".into(),
-            ticks_max: u32::MAX,
-            codesize_max: u32::MAX,
-        };
+        let submissions_folder = Path::new("submissions");
         for _ in 0..10 {
             let ulid = Ulid::new();
-            let dir = submission_dir(&config, ulid);
-            let file = submission_file(&config, ulid);
+            let dir = submission_dir(submissions_folder, ulid);
+            let file = submission_file(submissions_folder, ulid);
             assert!(file.starts_with(dir));
         }
     }

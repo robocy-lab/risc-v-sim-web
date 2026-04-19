@@ -8,6 +8,10 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tracing::{Instrument, Level, Span, info};
 use ulid::Ulid;
 
+pub const TEST_MONGO_URI: &'static str = "mongodb://mongodb:27017";
+pub const TEST_DB_NAME: &'static str = "riscv_sim";
+
+#[allow(dead_code)]
 pub async fn run_test<Patch, Body, F>(test_name: &str, patch_cfg: Patch, body: Body)
 where
     Patch: FnOnce(&mut risc_v_sim_web::Config),
@@ -24,6 +28,7 @@ where
     server_task.abort();
 }
 
+#[allow(dead_code)]
 pub fn init_test() {
     // Tests run in parallel, so some might have already created the logger.
     let _ = tracing_subscriber::fmt()
@@ -37,12 +42,17 @@ pub fn init_test() {
 /// avoid any weird bugs.
 /// The function returns a JoinHandle. For quick and clean test termination,
 /// make sure to [`JoinHandle::abort()`] the returned future.
-pub async fn spawn_server(span: &Span, cfg: risc_v_sim_web::Config) -> (u16, JoinHandle<()>) {
+#[allow(dead_code)]
+pub async fn spawn_server(
+    span: &Span,
+    cfg: risc_v_sim_web::Config,
+) -> (u16, JoinHandle<anyhow::Result<()>>) {
     let (port, listener) = make_listener().instrument(span.clone()).await;
     let task = tokio::spawn(risc_v_sim_web::run(span.clone(), listener, cfg));
     (port, task)
 }
 
+#[allow(dead_code)]
 async fn make_listener() -> (u16, TcpListener) {
     // NOTE: we specifically create a listener on the same thread and make the
     //       caller wait. This is because we want to make sure the server properly
@@ -55,40 +65,26 @@ async fn make_listener() -> (u16, TcpListener) {
     (port, listener)
 }
 
+#[allow(dead_code)]
 pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
-    let jwt_secret = "test_secret_key_for_integration_tests";
-    let auth_state = risc_v_sim_web::auth::AuthConfig {
-        oauth_client: oauth2::Client::new(
-            oauth2::ClientId::new("test_client_id".to_string()),
-            Some(oauth2::ClientSecret::new("test_client_secret".to_string())),
-            oauth2::AuthUrl::new("https://example.com/auth".to_string()).unwrap(),
-            Some(oauth2::TokenUrl::new("https://example.com/token".to_string()).unwrap()),
-        ),
-        jwt_secret: jwt_secret.to_string(),
-    };
-
-    let db_service = risc_v_sim_web::database::DbClient::new().await.unwrap();
-
     risc_v_sim_web::Config {
-        actor_config: risc_v_sim_web::submission_actor::Config {
-            as_binary: std::env::var("AS_BINARY")
-                .unwrap_or_else(|_| "riscv64-elf-as".to_string())
-                .into(),
-            ld_binary: std::env::var("LD_BINARY")
-                .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
-                .into(),
-            simulator_binary: std::env::var("SIMULATOR_BINARY")
-                .unwrap_or_else(|_| "simulator".to_string())
-                .into(),
-            submissions_folder: format!("submissions-{test_name}").into(),
-            ticks_max: 15,
-            codesize_max: 256,
-        },
-        auth_config: auth_state,
-        db: std::sync::Arc::new(db_service),
+        as_binary: "riscv64-linux-gnu-as".into(),
+        ld_binary: "riscv64-linux-gnu-ld".into(),
+        simulator_binary: "./risc-v-sim/target/debug/risc-v-sim".into(),
+        submissions_folder: format!("submissions-{test_name}").into(),
+        ticks_max: 15,
+        codesize_max: 256,
+        mongo_uri: TEST_MONGO_URI.to_string(),
+        db_name: TEST_DB_NAME.to_string(),
+        client_id: "test_client_id".to_string(),
+        client_secret: "test_client_secret".to_string(),
+        jwt_secret: "test_secret_key_for_integration_tests".to_string(),
+        auth_url: "https://example.com/auth".to_string(),
+        token_url: "https://example.com/token".to_string(),
     }
 }
 
+#[allow(dead_code)]
 pub fn generate_test_token(user_id: &str, login: &str, jwt_secret: &str) -> String {
     let claims = risc_v_sim_web::auth::Claims {
         sub: user_id.to_string(),

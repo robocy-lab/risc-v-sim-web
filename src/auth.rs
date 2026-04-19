@@ -1,4 +1,3 @@
-use anyhow::Context;
 use axum::{
     Router,
     extract::{Query, Request, State},
@@ -9,28 +8,19 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::Cookie;
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
-use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, Scope, TokenResponse, TokenUrl,
-    basic::BasicClient, reqwest::async_http_client,
-};
+use jsonwebtoken::{Header, Validation, decode, encode};
+use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse, reqwest::async_http_client};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::{Duration, UtcDateTime};
 
-use crate::api::ApiError;
+use crate::{AppState, api::ApiError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     pub login: String,
     pub name: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthConfig {
-    pub oauth_client: BasicClient,
-    pub jwt_secret: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,35 +38,10 @@ pub struct Claims {
     pub exp: i64,
 }
 
-pub fn create_auth_config() -> anyhow::Result<AuthConfig> {
-    let client_id = std::env::var("GITHUB_CLIENT_ID").context("GITHUB_CLIENT_ID not set")?;
-    let client_secret =
-        std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
-    let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
-
-    let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
-        .map_err(|e| anyhow::anyhow!("Invalid auth URL: {}", e))?;
-    let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())
-        .map_err(|e| anyhow::anyhow!("Invalid token URL: {}", e))?;
-
-    let client = BasicClient::new(
-        ClientId::new(client_id),
-        Some(ClientSecret::new(client_secret)),
-        auth_url,
-        Some(token_url),
-    );
-
-    Ok(AuthConfig {
-        oauth_client: client,
-        jwt_secret,
-    })
-}
-
 pub async fn login_handler(
-    State(config): State<Arc<crate::Config>>,
+    State(state): State<Arc<crate::AppState>>,
 ) -> Result<Redirect, StatusCode> {
-    let (auth_url, _csrf_token) = config
-        .auth_config
+    let (auth_url, _csrf_token) = state
         .oauth_client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("user:email".to_string()))
@@ -96,14 +61,13 @@ pub async fn logout_handler() -> (CookieJar, Redirect) {
 }
 
 pub async fn oauth_callback_handler(
-    State(config): State<Arc<crate::Config>>,
+    State(state): State<Arc<AppState>>,
     Query(query): Query<AuthQuery>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Redirect), StatusCode> {
     let code = AuthorizationCode::new(query.code.clone());
 
-    let token_response = config
-        .auth_config
+    let token_response = state
         .oauth_client
         .exchange_code(code)
         .request_async(async_http_client)
@@ -144,12 +108,7 @@ pub async fn oauth_callback_handler(
         exp: (UtcDateTime::now() + Duration::hours(24 * 7)).unix_timestamp(),
     };
 
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
-    )
-    .map_err(|err| {
+    let token = encode(&Header::default(), &claims, &state.jwt_encoding_key).map_err(|err| {
         tracing::error!("Failed to create JWT token: {err:#}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -162,7 +121,7 @@ pub async fn oauth_callback_handler(
     Ok((jar.add(cookie), Redirect::to("/")))
 }
 
-pub fn auth_routes() -> Router<Arc<crate::Config>> {
+pub fn auth_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/login", post(login_handler))
         .route("/callback", get(oauth_callback_handler))
@@ -170,14 +129,14 @@ pub fn auth_routes() -> Router<Arc<crate::Config>> {
 }
 
 pub async fn auth_middleware(
-    State(config): State<Arc<crate::Config>>,
+    State(state): State<Arc<AppState>>,
     cookie_jar: CookieJar,
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     let path = request.uri().path();
 
-    match get_user_from_cookies(&config.auth_config, &cookie_jar) {
+    match get_user_from_cookies(&state, &cookie_jar) {
         Ok(user) => {
             request.extensions_mut().insert(user);
             next.run(request).await
@@ -189,17 +148,14 @@ pub async fn auth_middleware(
     }
 }
 
-fn get_user_from_cookies(
-    auth_config: &AuthConfig,
-    cookie_jar: &CookieJar,
-) -> Result<User, ApiError> {
+fn get_user_from_cookies(state: &AppState, cookie_jar: &CookieJar) -> Result<User, ApiError> {
     let Some(token) = cookie_jar.get("jwt") else {
         return Err(ApiError::unauthorized());
     };
 
     let claims_result = decode::<Claims>(
         token.value(),
-        &DecodingKey::from_secret(auth_config.jwt_secret.as_bytes()),
+        &state.jwt_decoding_key,
         &Validation::default(),
     );
     match claims_result {

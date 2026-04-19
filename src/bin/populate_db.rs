@@ -8,7 +8,10 @@ use ulid::Ulid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let db_service = DbClient::new().await?;
+    let mongo_uri =
+        std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
+    let db_service = DbClient::new(&mongo_uri, &db_name).await?;
 
     let test_user_ids = vec![
         // miko089's GitHub user id for me to be able to see my submissions even in test run

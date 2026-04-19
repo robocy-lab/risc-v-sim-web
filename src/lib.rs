@@ -3,50 +3,117 @@ pub mod auth;
 pub mod database;
 pub mod submission_actor;
 
-use axum::{Extension, Router, body::Body, http::Request, middleware, routing::get};
+use anyhow::Context;
+use axum::{Router, body::Body, http::Request, middleware, routing::get};
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{Instrument, info_span};
 
 use crate::database::DbClient;
-use auth::{AuthConfig, auth_middleware};
-use submission_actor::{Config as ActorConfig, SubmissionTask, run_submission_actor};
+use crate::submission_actor::SubmissionActor;
+use auth::auth_middleware;
+use submission_actor::SubmissionTask;
 
 pub struct Config {
-    pub actor_config: ActorConfig,
-    pub auth_config: AuthConfig,
+    /* Submission processing configuration */
+    /// Path to the assembler program, capable of producing RiscV object code.
+    pub as_binary: PathBuf,
+    /// Path to the linker program, capable of producing RiscV elfs.
+    pub ld_binary: PathBuf,
+    /// Path to a compiler risc-v-sim.
+    pub simulator_binary: PathBuf,
+    /// Path to a folder, that will be used to store submission artifacts.
+    pub submissions_folder: PathBuf,
+    /// Max of amount of risc-v-sim allowed.
+    pub ticks_max: u32,
+    /// Max size of the upload in bytes.
+    pub codesize_max: u32,
+
+    /* Auth configuration */
+    /// OAuth2 client id.
+    pub client_id: String,
+    /// OAuth2 client secret.
+    pub client_secret: String,
+    /// JWT secret used to sign user's claims.
+    pub jwt_secret: String,
+    /// Standard OAuth2 auth endpoint.
+    pub auth_url: String,
+    /// Standard OAuth2 token endpoint.
+    pub token_url: String,
+
+    /* Db configuration */
+    /// URI of the mongo server.
+    pub mongo_uri: String,
+    /// Mongo database name.
+    pub db_name: String,
+}
+
+pub struct AppState {
+    pub ticks_max: u32,
+    pub codesize_max: u32,
+    pub submissions_folder: PathBuf,
+    pub jwt_encoding_key: jsonwebtoken::EncodingKey,
+    pub jwt_decoding_key: jsonwebtoken::DecodingKey,
+    pub oauth_client: oauth2::basic::BasicClient,
     pub db: Arc<DbClient>,
+    pub task_send: Sender<SubmissionTask>,
 }
 
 pub async fn health_handler() -> &'static str {
     "Ok"
 }
 
-pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
-    let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
-    let config = Arc::new(cfg);
+pub async fn run(
+    root_span: tracing::Span,
+    listener: TcpListener,
+    cfg: Config,
+) -> anyhow::Result<()> {
+    let auth_url = oauth2::AuthUrl::new(cfg.auth_url).context("make auth_url")?;
+    let token_url = oauth2::TokenUrl::new(cfg.token_url).context("make token_url")?;
 
-    let submission_actor = run_submission_actor(
-        Arc::new(config.actor_config.clone()),
-        config.db.clone(),
+    let oauth_client = oauth2::basic::BasicClient::new(
+        oauth2::ClientId::new(cfg.client_id),
+        Some(oauth2::ClientSecret::new(cfg.client_secret)),
+        auth_url,
+        Some(token_url),
+    );
+
+    let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
+    let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
+    let state = Arc::new(AppState {
+        db: Arc::new(db_client),
+        task_send,
+        jwt_encoding_key: jsonwebtoken::EncodingKey::from_secret(cfg.jwt_secret.as_bytes()),
+        jwt_decoding_key: jsonwebtoken::DecodingKey::from_secret(cfg.jwt_secret.as_bytes()),
+        oauth_client,
+        ticks_max: cfg.ticks_max,
+        codesize_max: cfg.codesize_max,
+        submissions_folder: cfg.submissions_folder.clone(),
+    });
+
+    let submission_actor = SubmissionActor::new(
         task_recv,
-    )
-    .instrument(info_span!("submission_actor"));
+        state.db.clone(),
+        cfg.as_binary,
+        cfg.ld_binary,
+        cfg.simulator_binary,
+        cfg.submissions_folder,
+    );
 
     let router = Router::new()
         .nest(
             "/api",
             api::api_routes()
-                .layer(Extension(task_send))
-                .with_state(config.clone())
+                .with_state(state.clone())
                 .layer(middleware::from_fn_with_state(
-                    config.clone(),
+                    state.clone(),
                     auth_middleware,
                 )),
         )
-        .nest("/auth", auth::auth_routes().with_state(config.clone()))
+        .nest("/auth", auth::auth_routes().with_state(state.clone()))
         .route("/health", get(health_handler))
         .fallback_service(ServeDir::new("static"))
         .layer(ServiceBuilder::new().layer(tower_http::cors::CorsLayer::permissive()))
@@ -62,8 +129,8 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
             }),
         );
 
-    let (res, _) = join!(axum::serve(listener, router), submission_actor,);
-    res.unwrap();
+    let (res, _) = join!(axum::serve(listener, router), submission_actor.run(),);
+    res.map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]
