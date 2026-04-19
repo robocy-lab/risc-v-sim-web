@@ -73,9 +73,9 @@ pub fn create_auth_config() -> anyhow::Result<AuthConfig> {
 }
 
 pub async fn login_handler(
-    State(config): State<Arc<crate::Config>>,
+    State(state): State<Arc<crate::AppState>>,
 ) -> Result<Redirect, StatusCode> {
-    let (auth_url, _csrf_token) = config
+    let (auth_url, _csrf_token) = state
         .auth_config
         .oauth_client
         .authorize_url(CsrfToken::new_random)
@@ -96,13 +96,13 @@ pub async fn logout_handler() -> (CookieJar, Redirect) {
 }
 
 pub async fn oauth_callback_handler(
-    State(config): State<Arc<crate::Config>>,
+    State(state): State<Arc<crate::AppState>>,
     Query(query): Query<AuthQuery>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Redirect), StatusCode> {
     let code = AuthorizationCode::new(query.code.clone());
 
-    let token_response = config
+    let token_response = state
         .auth_config
         .oauth_client
         .exchange_code(code)
@@ -147,7 +147,7 @@ pub async fn oauth_callback_handler(
     let token = encode(
         &Header::default(),
         &claims,
-        &EncodingKey::from_secret(config.auth_config.jwt_secret.as_ref()),
+        &EncodingKey::from_secret(state.auth_config.jwt_secret.as_ref()),
     )
     .map_err(|err| {
         tracing::error!("Failed to create JWT token: {err:#}");
@@ -162,7 +162,7 @@ pub async fn oauth_callback_handler(
     Ok((jar.add(cookie), Redirect::to("/")))
 }
 
-pub fn auth_routes() -> Router<Arc<crate::Config>> {
+pub fn auth_routes() -> Router<Arc<crate::AppState>> {
     Router::new()
         .route("/login", post(login_handler))
         .route("/callback", get(oauth_callback_handler))
@@ -170,14 +170,14 @@ pub fn auth_routes() -> Router<Arc<crate::Config>> {
 }
 
 pub async fn auth_middleware(
-    State(config): State<Arc<crate::Config>>,
+    State(state): State<Arc<crate::AppState>>,
     cookie_jar: CookieJar,
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     let path = request.uri().path();
 
-    match get_user_from_cookies(&config.auth_config, &cookie_jar) {
+    match get_user_from_cookies(&state.auth_config, &cookie_jar) {
         Ok(user) => {
             request.extensions_mut().insert(user);
             next.run(request).await

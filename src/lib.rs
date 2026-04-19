@@ -20,17 +20,27 @@ pub struct Config {
     pub db: Arc<DbClient>,
 }
 
+pub struct AppState {
+    pub actor_config: ActorConfig,
+    pub auth_config: AuthConfig,
+    pub db: Arc<DbClient>,
+}
+
 pub async fn health_handler() -> &'static str {
     "Ok"
 }
 
 pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
-    let config = Arc::new(cfg);
+    let state = Arc::new(AppState {
+        actor_config: cfg.actor_config,
+        auth_config: cfg.auth_config,
+        db: cfg.db,
+    });
 
     let submission_actor = run_submission_actor(
-        Arc::new(config.actor_config.clone()),
-        config.db.clone(),
+        Arc::new(state.actor_config.clone()),
+        state.db.clone(),
         task_recv,
     )
     .instrument(info_span!("submission_actor"));
@@ -40,13 +50,13 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
             "/api",
             api::api_routes()
                 .layer(Extension(task_send))
-                .with_state(config.clone())
+                .with_state(state.clone())
                 .layer(middleware::from_fn_with_state(
-                    config.clone(),
+                    state.clone(),
                     auth_middleware,
                 )),
         )
-        .nest("/auth", auth::auth_routes().with_state(config.clone()))
+        .nest("/auth", auth::auth_routes().with_state(state.clone()))
         .route("/health", get(health_handler))
         .fallback_service(ServeDir::new("static"))
         .layer(ServiceBuilder::new().layer(tower_http::cors::CorsLayer::permissive()))

@@ -14,12 +14,12 @@ use tokio::sync::mpsc::Sender;
 use tokio_util::io::ReaderStream;
 use ulid::Ulid;
 
-use crate::Config;
+use crate::AppState;
 use crate::auth::User;
 use crate::database::SubmissionRecord;
 use crate::submission_actor::{SubmissionTask, source_file, submission_file};
 
-pub fn api_routes() -> Router<Arc<Config>> {
+pub fn api_routes() -> Router<Arc<AppState>> {
     Router::new()
         .route(
             "/submission",
@@ -38,21 +38,21 @@ pub fn api_routes() -> Router<Arc<Config>> {
 }
 
 async fn get_submission_trace_handler(
-    State(config): State<Arc<Config>>,
+    State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
     serve_file(
-        submission_file(&config.actor_config, ulid),
+        submission_file(&state.actor_config, ulid),
         "application/json",
     )
     .await
 }
 
 async fn get_submission_source_handler(
-    State(config): State<Arc<Config>>,
+    State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(source_file(&config.actor_config, ulid), "application/json").await
+    serve_file(source_file(&state.actor_config, ulid), "application/json").await
 }
 
 async fn serve_file(path: PathBuf, content_type: &'static str) -> Response {
@@ -75,10 +75,10 @@ async fn me_handler(Extension(user): Extension<User>) -> Json<User> {
 }
 
 async fn get_submission_handler(
-    State(config): State<Arc<Config>>,
+    State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> ApiResult<SubmissionRecord> {
-    let record = config
+    let record = state
         .db
         .get_submission_by_uuid(ulid)
         .await
@@ -92,7 +92,7 @@ async fn get_submission_handler(
 }
 
 async fn create_submission_handler(
-    State(config): State<Arc<Config>>,
+    State(state): State<Arc<AppState>>,
     Extension(task_send): Extension<Sender<SubmissionTask>>,
     Extension(user): Extension<User>,
     multipart: Multipart,
@@ -101,7 +101,7 @@ async fn create_submission_handler(
     let user_id = user.id;
     let user_login = user.login;
 
-    let (ticks, source_code) = parse_submit_inputs(multipart, config.as_ref())
+    let (ticks, source_code) = parse_submit_inputs(multipart, state.as_ref())
         .await
         .context("parse")
         .map_err(ApiError::bad_request)?;
@@ -113,7 +113,7 @@ async fn create_submission_handler(
         "New submission",
     );
 
-    if let Err(err) = config.db.create_submission_with_user(ulid, user_id).await {
+    if let Err(err) = state.db.create_submission_with_user(ulid, user_id).await {
         return Err(ApiError::internal_error(err));
     }
 
@@ -138,7 +138,7 @@ pub struct CreateSubmissionResponse {
 
 async fn parse_submit_inputs(
     mut multipart: Multipart,
-    config: &Config,
+    state: &AppState,
 ) -> anyhow::Result<(u32, bytes::Bytes)> {
     let mut ticks: Option<u32> = None;
     let mut file: Option<bytes::Bytes> = None;
@@ -160,11 +160,11 @@ async fn parse_submit_inputs(
     let Some(file) = file else {
         anyhow::bail!("file field not set")
     };
-    if ticks > config.actor_config.ticks_max {
-        anyhow::bail!("ticks number exceeds {}", config.actor_config.ticks_max)
+    if ticks > state.actor_config.ticks_max {
+        anyhow::bail!("ticks number exceeds {}", state.actor_config.ticks_max)
     }
-    if file.len() > config.actor_config.codesize_max as usize {
-        anyhow::bail!("file length exceeds {}", config.actor_config.codesize_max)
+    if file.len() > state.actor_config.codesize_max as usize {
+        anyhow::bail!("file length exceeds {}", state.actor_config.codesize_max)
     }
     Ok((ticks, file))
 }
@@ -175,10 +175,10 @@ async fn ticks_from_field(field: Field<'_>) -> anyhow::Result<u32> {
 }
 
 async fn list_submissions_handler(
-    State(config): State<Arc<Config>>,
+    State(state): State<Arc<AppState>>,
     Extension(user): Extension<User>,
 ) -> ApiResult<UserSubmissionsResponse> {
-    let submissions = config
+    let submissions = state
         .db
         .get_user_submissions(user.id)
         .await
