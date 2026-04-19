@@ -16,6 +16,18 @@ async fn main() -> anyhow::Result<()> {
 
     let ticks_max: u32 = std::env::var("TICKS_MAX")?.parse()?;
     let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
+    let as_binary = std::env::var("AS_BINARY")
+        .unwrap_or_else(|_| "riscv64-elf-as".to_string())
+        .into();
+    let ld_binary = std::env::var("LD_BINARY")
+        .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
+        .into();
+    let simulator_binary = std::env::var("SIMULATOR_BINARY")
+        .unwrap_or_else(|_| "simulator".to_string())
+        .into();
+    let submissions_folder = std::env::var("SUBMISSIONS_FOLDER")
+        .unwrap_or_else(|_| "submission".to_string())
+        .into();
 
     let mongo_uri =
         std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
@@ -30,22 +42,12 @@ async fn main() -> anyhow::Result<()> {
         tracing::info_span!("rvsim-web"),
         listener,
         risc_v_sim_web::Config {
-            actor_config: risc_v_sim_web::submission_actor::Config {
-                as_binary: std::env::var("AS_BINARY")
-                    .unwrap_or_else(|_| "riscv64-elf-as".to_string())
-                    .into(),
-                ld_binary: std::env::var("LD_BINARY")
-                    .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
-                    .into(),
-                simulator_binary: std::env::var("SIMULATOR_BINARY")
-                    .unwrap_or_else(|_| "simulator".to_string())
-                    .into(),
-                submissions_folder: std::env::var("SUBMISSIONS_FOLDER")
-                    .unwrap_or_else(|_| "submission".to_string())
-                    .into(),
-                ticks_max,
-                codesize_max,
-            },
+            as_binary,
+            ld_binary,
+            simulator_binary,
+            submissions_folder,
+            ticks_max,
+            codesize_max,
             mongo_uri,
             db_name,
             client_id,

@@ -68,20 +68,12 @@ async fn make_listener() -> (u16, TcpListener) {
 #[allow(dead_code)]
 pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
     risc_v_sim_web::Config {
-        actor_config: risc_v_sim_web::submission_actor::Config {
-            as_binary: std::env::var("AS_BINARY")
-                .unwrap_or_else(|_| "riscv64-elf-as".to_string())
-                .into(),
-            ld_binary: std::env::var("LD_BINARY")
-                .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
-                .into(),
-            simulator_binary: std::env::var("SIMULATOR_BINARY")
-                .unwrap_or_else(|_| "simulator".to_string())
-                .into(),
-            submissions_folder: format!("submissions-{test_name}").into(),
-            ticks_max: 15,
-            codesize_max: 256,
-        },
+        as_binary: "riscv64-linux-gnu-as".into(),
+        ld_binary: "riscv64-linux-gnu-ld".into(),
+        simulator_binary: "./risc-v-sim/target/debug/risc-v-sim".into(),
+        submissions_folder: format!("submissions-{test_name}").into(),
+        ticks_max: 15,
+        codesize_max: 256,
         mongo_uri: TEST_MONGO_URI.to_string(),
         db_name: TEST_DB_NAME.to_string(),
         client_id: "test_client_id".to_string(),

@@ -41,7 +41,7 @@ async fn get_submission_trace_handler(
     Path(ulid): Path<Ulid>,
 ) -> Response {
     serve_file(
-        submission_file(&state.actor_config, ulid),
+        submission_file(&state.submissions_folder, ulid),
         "application/json",
     )
     .await
@@ -51,7 +51,11 @@ async fn get_submission_source_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(source_file(&state.actor_config, ulid), "application/json").await
+    serve_file(
+        source_file(&state.submissions_folder, ulid),
+        "application/json",
+    )
+    .await
 }
 
 async fn serve_file(path: PathBuf, content_type: &'static str) -> Response {
@@ -159,11 +163,11 @@ async fn parse_submit_inputs(
     let Some(file) = file else {
         anyhow::bail!("file field not set")
     };
-    if ticks > state.actor_config.ticks_max {
-        anyhow::bail!("ticks number exceeds {}", state.actor_config.ticks_max)
+    if ticks > state.ticks_max {
+        anyhow::bail!("ticks number exceeds {}", state.ticks_max)
     }
-    if file.len() > state.actor_config.codesize_max as usize {
-        anyhow::bail!("file length exceeds {}", state.actor_config.codesize_max)
+    if file.len() > state.codesize_max as usize {
+        anyhow::bail!("file length exceeds {}", state.codesize_max)
     }
     Ok((ticks, file))
 }

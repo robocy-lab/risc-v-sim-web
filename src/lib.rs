@@ -5,19 +5,26 @@ pub mod submission_actor;
 
 use anyhow::Context;
 use axum::{Router, body::Body, http::Request, middleware, routing::get};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::{Instrument, info_span};
 
 use crate::database::DbClient;
+use crate::submission_actor::SubmissionActor;
 use auth::auth_middleware;
-use submission_actor::{Config as ActorConfig, SubmissionTask, run_submission_actor};
+use submission_actor::SubmissionTask;
 
 pub struct Config {
-    pub actor_config: ActorConfig,
+    /* Submission processing configuration */
+    pub as_binary: PathBuf,
+    pub ld_binary: PathBuf,
+    pub simulator_binary: PathBuf,
+    pub submissions_folder: PathBuf,
+    pub ticks_max: u32,
+    pub codesize_max: u32,
 
     /* Auth configuration */
     pub client_id: String,
@@ -32,7 +39,9 @@ pub struct Config {
 }
 
 pub struct AppState {
-    pub actor_config: ActorConfig,
+    pub ticks_max: u32,
+    pub codesize_max: u32,
+    pub submissions_folder: PathBuf,
     pub jwt_secret: String,
     pub oauth_client: oauth2::basic::BasicClient,
     pub db: Arc<DbClient>,
@@ -61,19 +70,23 @@ pub async fn run(
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
     let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
     let state = Arc::new(AppState {
-        actor_config: cfg.actor_config,
         db: Arc::new(db_client),
         task_send,
         jwt_secret: cfg.jwt_secret,
         oauth_client,
+        ticks_max: cfg.ticks_max,
+        codesize_max: cfg.codesize_max,
+        submissions_folder: cfg.submissions_folder.clone(),
     });
 
-    let submission_actor = run_submission_actor(
-        Arc::new(state.actor_config.clone()),
-        state.db.clone(),
+    let submission_actor = SubmissionActor::new(
         task_recv,
-    )
-    .instrument(info_span!("submission_actor"));
+        state.db.clone(),
+        cfg.as_binary,
+        cfg.ld_binary,
+        cfg.simulator_binary,
+        cfg.submissions_folder,
+    );
 
     let router = Router::new()
         .nest(
@@ -101,7 +114,7 @@ pub async fn run(
             }),
         );
 
-    let (res, _) = join!(axum::serve(listener, router), submission_actor,);
+    let (res, _) = join!(axum::serve(listener, router), submission_actor.run(),);
     res.map_err(anyhow::Error::from)
 }
 

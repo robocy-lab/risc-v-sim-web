@@ -99,7 +99,4 @@ jobs:
       - name: Run integration tests
         run: |
           export PATH=~/.cargo/bin:$PATH
-          export SIMULATOR_BINARY=./risc-v-sim/target/debug/risc-v-sim
-          export AS_BINARY=riscv64-linux-gnu-as
-          export LD_BINARY=riscv64-linux-gnu-ld
           cargo test --test "*" --locked -- --show-output
