@@ -35,14 +35,14 @@ pub struct Config {
 
 pub async fn run_submission_actor(
     config: Arc<Config>,
-    db_service: Arc<DbClient>,
+    db_client: Arc<DbClient>,
     mut tasks: Receiver<SubmissionTask>,
 ) {
     while let Some(task) = tasks.recv().await {
         let ulid = task.ulid;
         tracing::debug!(ulid=%ulid, "Received task");
         tokio::spawn(
-            submission_task(config.clone(), db_service.clone(), task)
+            submission_task(config.clone(), db_client.clone(), task)
                 .instrument(tracing::info_span!("submission_task", ulid=%ulid)),
         );
     }
@@ -80,14 +80,14 @@ async fn simulate(
     .await
 }
 
-async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: SubmissionTask) {
+async fn submission_task(config: Arc<Config>, db_client: Arc<DbClient>, task: SubmissionTask) {
     let sub_dir = submission_dir(&config, task.ulid);
     if let Err(err) = fs::create_dir_all(&sub_dir).await {
         tracing::error!("Can't create submission_dir: {err:#}");
         return;
     }
 
-    db_service
+    db_client
         .update_submission_status(task.ulid, SubmissionStatus::InProgress)
         .await;
 
@@ -117,7 +117,7 @@ async fn submission_task(config: Arc<Config>, db_service: Arc<DbClient>, task: S
         tracing::error!("Failed to write source: {err:#}");
     }
 
-    db_service
+    db_client
         .update_submission_status(task.ulid, final_status)
         .await;
 
