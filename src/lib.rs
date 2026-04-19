@@ -19,22 +19,35 @@ use submission_actor::SubmissionTask;
 
 pub struct Config {
     /* Submission processing configuration */
+    /// Path to the assembler program, capable of producing RiscV object code.
     pub as_binary: PathBuf,
+    /// Path to the linker program, capable of producing RiscV elfs.
     pub ld_binary: PathBuf,
+    /// Path to a compiler risc-v-sim.
     pub simulator_binary: PathBuf,
+    /// Path to a folder, that will be used to store submission artifacts.
     pub submissions_folder: PathBuf,
+    /// Max of amount of risc-v-sim allowed.
     pub ticks_max: u32,
+    /// Max size of the upload in bytes.
     pub codesize_max: u32,
 
     /* Auth configuration */
+    /// OAuth2 client id.
     pub client_id: String,
+    /// OAuth2 client secret.
     pub client_secret: String,
+    /// JWT secret used to sign user's claims.
     pub jwt_secret: String,
+    /// Standard OAuth2 auth endpoint.
     pub auth_url: String,
+    /// Standard OAuth2 token endpoint.
     pub token_url: String,
 
     /* Db configuration */
+    /// URI of the mongo server.
     pub mongo_uri: String,
+    /// Mongo database name.
     pub db_name: String,
 }
 
