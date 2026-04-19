@@ -18,7 +18,10 @@ async fn main() -> anyhow::Result<()> {
     let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
     let auth_state = risc_v_sim_web::auth::create_auth_config()?;
 
-    let db = risc_v_sim_web::database::DbClient::new().await?;
+    let mongo_uri =
+        std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
+    let db = risc_v_sim_web::database::DbClient::new(&mongo_uri, &db_name).await?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),

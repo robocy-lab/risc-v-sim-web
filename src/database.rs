@@ -54,11 +54,7 @@ pub struct DbClient {
 }
 
 impl DbClient {
-    pub async fn new() -> anyhow::Result<Self> {
-        let mongo_uri = std::env::var("MONGODB_URI")
-            .unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-        let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
-
+    pub async fn new(mongo_uri: &str, db_name: &str) -> anyhow::Result<Self> {
         let client = Client::with_uri_str(&mongo_uri)
             .await
             .context("Failed to connect to MongoDB")?;
