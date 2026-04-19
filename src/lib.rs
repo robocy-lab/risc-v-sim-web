@@ -17,7 +17,8 @@ use submission_actor::{Config as ActorConfig, SubmissionTask, run_submission_act
 pub struct Config {
     pub actor_config: ActorConfig,
     pub auth_config: AuthConfig,
-    pub db: Arc<DbClient>,
+    pub mongo_uri: String,
+    pub db_name: String,
 }
 
 pub struct AppState {
@@ -30,12 +31,17 @@ pub async fn health_handler() -> &'static str {
     "Ok"
 }
 
-pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
+pub async fn run(
+    root_span: tracing::Span,
+    listener: TcpListener,
+    cfg: Config,
+) -> anyhow::Result<()> {
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
+    let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
     let state = Arc::new(AppState {
         actor_config: cfg.actor_config,
         auth_config: cfg.auth_config,
-        db: cfg.db,
+        db: Arc::new(db_client),
     });
 
     let submission_actor = run_submission_actor(
@@ -73,7 +79,7 @@ pub async fn run(root_span: tracing::Span, listener: TcpListener, cfg: Config) {
         );
 
     let (res, _) = join!(axum::serve(listener, router), submission_actor,);
-    res.unwrap();
+    res.map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]

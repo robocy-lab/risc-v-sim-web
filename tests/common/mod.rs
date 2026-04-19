@@ -41,9 +41,12 @@ pub fn init_test() {
 /// Make sure to .await the result of this function as soon as possible to
 /// avoid any weird bugs.
 /// The function returns a JoinHandle. For quick and clean test termination,
-// make sure to [`JoinHandle::abort()`] the returned future.
+/// make sure to [`JoinHandle::abort()`] the returned future.
 #[allow(dead_code)]
-pub async fn spawn_server(span: &Span, cfg: risc_v_sim_web::Config) -> (u16, JoinHandle<()>) {
+pub async fn spawn_server(
+    span: &Span,
+    cfg: risc_v_sim_web::Config,
+) -> (u16, JoinHandle<anyhow::Result<()>>) {
     let (port, listener) = make_listener().instrument(span.clone()).await;
     let task = tokio::spawn(risc_v_sim_web::run(span.clone(), listener, cfg));
     (port, task)
@@ -75,10 +78,6 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         jwt_secret: jwt_secret.to_string(),
     };
 
-    let db_service = risc_v_sim_web::database::DbClient::new(TEST_MONGO_URI, TEST_DB_NAME)
-        .await
-        .unwrap();
-
     risc_v_sim_web::Config {
         actor_config: risc_v_sim_web::submission_actor::Config {
             as_binary: std::env::var("AS_BINARY")
@@ -95,7 +94,8 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
             codesize_max: 256,
         },
         auth_config: auth_state,
-        db: std::sync::Arc::new(db_service),
+        mongo_uri: TEST_MONGO_URI.to_string(),
+        db_name: TEST_DB_NAME.to_string(),
     }
 }
 

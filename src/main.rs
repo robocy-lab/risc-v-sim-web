@@ -1,5 +1,4 @@
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::sync::Arc;
 use tracing::{Level, info};
 
 #[tokio::main]
@@ -21,7 +20,6 @@ async fn main() -> anyhow::Result<()> {
     let mongo_uri =
         std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
     let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
-    let db = risc_v_sim_web::database::DbClient::new(&mongo_uri, &db_name).await?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
@@ -44,10 +42,9 @@ async fn main() -> anyhow::Result<()> {
                 codesize_max,
             },
             auth_config: auth_state,
-            db: Arc::new(db),
+            mongo_uri,
+            db_name,
         },
     )
-    .await;
-
-    Ok(())
+    .await
 }
