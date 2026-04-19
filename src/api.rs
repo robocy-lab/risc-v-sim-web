@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc::Sender;
 use tokio_util::io::ReaderStream;
 use ulid::Ulid;
 
@@ -93,7 +92,6 @@ async fn get_submission_handler(
 
 async fn create_submission_handler(
     State(state): State<Arc<AppState>>,
-    Extension(task_send): Extension<Sender<SubmissionTask>>,
     Extension(user): Extension<User>,
     multipart: Multipart,
 ) -> ApiResult<CreateSubmissionResponse> {
@@ -117,7 +115,8 @@ async fn create_submission_handler(
         return Err(ApiError::internal_error(err));
     }
 
-    task_send
+    state
+        .task_send
         .send(SubmissionTask {
             source_code,
             ticks,

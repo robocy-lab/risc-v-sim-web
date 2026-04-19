@@ -3,8 +3,9 @@ pub mod auth;
 pub mod database;
 pub mod submission_actor;
 
-use axum::{Extension, Router, body::Body, http::Request, middleware, routing::get};
+use axum::{Router, body::Body, http::Request, middleware, routing::get};
 use std::sync::Arc;
+use tokio::sync::mpsc::Sender;
 use tokio::{join, net::TcpListener};
 use tower::ServiceBuilder;
 use tower_http::{services::ServeDir, trace::TraceLayer};
@@ -25,6 +26,7 @@ pub struct AppState {
     pub actor_config: ActorConfig,
     pub auth_config: AuthConfig,
     pub db: Arc<DbClient>,
+    pub task_send: Sender<SubmissionTask>,
 }
 
 pub async fn health_handler() -> &'static str {
@@ -42,6 +44,7 @@ pub async fn run(
         actor_config: cfg.actor_config,
         auth_config: cfg.auth_config,
         db: Arc::new(db_client),
+        task_send,
     });
 
     let submission_actor = run_submission_actor(
@@ -55,7 +58,6 @@ pub async fn run(
         .nest(
             "/api",
             api::api_routes()
-                .layer(Extension(task_send))
                 .with_state(state.clone())
                 .layer(middleware::from_fn_with_state(
                     state.clone(),
