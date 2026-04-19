@@ -8,7 +8,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::Cookie;
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{Header, Validation, decode, encode};
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse, reqwest::async_http_client};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -108,12 +108,7 @@ pub async fn oauth_callback_handler(
         exp: (UtcDateTime::now() + Duration::hours(24 * 7)).unix_timestamp(),
     };
 
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
-    )
-    .map_err(|err| {
+    let token = encode(&Header::default(), &claims, &state.jwt_encoding_key).map_err(|err| {
         tracing::error!("Failed to create JWT token: {err:#}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
@@ -153,14 +148,14 @@ pub async fn auth_middleware(
     }
 }
 
-fn get_user_from_cookies(auth_config: &AppState, cookie_jar: &CookieJar) -> Result<User, ApiError> {
+fn get_user_from_cookies(state: &AppState, cookie_jar: &CookieJar) -> Result<User, ApiError> {
     let Some(token) = cookie_jar.get("jwt") else {
         return Err(ApiError::unauthorized());
     };
 
     let claims_result = decode::<Claims>(
         token.value(),
-        &DecodingKey::from_secret(auth_config.jwt_secret.as_bytes()),
+        &state.jwt_decoding_key,
         &Validation::default(),
     );
     match claims_result {
