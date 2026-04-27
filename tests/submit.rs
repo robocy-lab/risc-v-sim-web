@@ -172,8 +172,8 @@ async fn make_submission_and_wait_for_success(port: u16, source_file: impl AsRef
 
     let source_response = get_submission_source(&client, port, submit_response.ulid).await;
     assert_eq!(source_response.status(), reqwest::StatusCode::OK);
-    let source_json: serde_json::Value = parse_response_json(source_response).await;
-    assert_eq!(source_json["code"].as_str().unwrap(), original_code);
+    let source_text = source_response.text().await.unwrap();
+    assert_eq!(source_text, original_code);
 
     verify_submission_trace(submission_response, &source_path).await;
 }
