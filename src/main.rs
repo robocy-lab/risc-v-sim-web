@@ -1,6 +1,33 @@
 use anyhow::Context;
+use clap::Parser;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tracing::{Level, info};
+
+#[derive(Parser, Debug)]
+#[command()]
+struct Args {
+    #[arg(long)]
+    ticks_max: u32,
+
+    #[arg(long)]
+    codesize_max: u32,
+
+    /// path to risc-v as binary
+    #[arg(long, default_value_t = String::from("riscv64-elf-as"))]
+    as_binary: String,
+
+    /// path to risc-v ld binary
+    #[arg(long, default_value_t = String::from("riscv64-elf-ld"))]
+    ld_binary: String,
+
+    /// path to risc-v simulator binary
+    #[arg(long, default_value_t = String::from("simulator"))]
+    simulator_binary: String,
+
+    /// path to a folder, where submissions will be stored
+    #[arg(long, default_value_t = String::from("submission"))]
+    submissions_folder: String,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,20 +41,7 @@ async fn main() -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
     info!(port = port, "Starting...");
 
-    let ticks_max: u32 = std::env::var("TICKS_MAX")?.parse()?;
-    let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
-    let as_binary = std::env::var("AS_BINARY")
-        .unwrap_or_else(|_| "riscv64-elf-as".to_string())
-        .into();
-    let ld_binary = std::env::var("LD_BINARY")
-        .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
-        .into();
-    let simulator_binary = std::env::var("SIMULATOR_BINARY")
-        .unwrap_or_else(|_| "simulator".to_string())
-        .into();
-    let submissions_folder = std::env::var("SUBMISSIONS_FOLDER")
-        .unwrap_or_else(|_| "submission".to_string())
-        .into();
+    let args = Args::parse();
 
     let mongo_uri =
         std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
@@ -42,12 +56,12 @@ async fn main() -> anyhow::Result<()> {
         tracing::info_span!("rvsim-web"),
         listener,
         risc_v_sim_web::Config {
-            as_binary,
-            ld_binary,
-            simulator_binary,
-            submissions_folder,
-            ticks_max,
-            codesize_max,
+            as_binary: args.as_binary.into(),
+            ld_binary: args.ld_binary.into(),
+            simulator_binary: args.simulator_binary.into(),
+            submissions_folder: args.submissions_folder.into(),
+            ticks_max: args.ticks_max,
+            codesize_max: args.codesize_max,
             mongo_uri,
             db_name,
             client_id,

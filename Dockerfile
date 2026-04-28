@@ -34,4 +34,10 @@ RUN mkdir -p /app/submission
 
 EXPOSE 3000
 
-ENTRYPOINT ["./target/release/risc-v-sim-web"]
+ENTRYPOINT ./target/release/risc-v-sim-web \
+    --simulator-binary ${SIMULATOR_BINARY} \
+    --as-binary ${AS_BINARY} \
+    --ld-binary ${LD_BINARY} \
+    --codesize-max ${CODESIZE_MAX} \
+    --ticks-max ${TICKS_MAX} \
+    --submissions-folder ${SUBMISSIONS_FOLDER}
