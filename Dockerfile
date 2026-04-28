@@ -40,4 +40,5 @@ ENTRYPOINT ./target/release/risc-v-sim-web \
     --ld-binary ${LD_BINARY} \
     --codesize-max ${CODESIZE_MAX} \
     --ticks-max ${TICKS_MAX} \
-    --submissions-folder ${SUBMISSIONS_FOLDER}
+    --submissions-folder ${SUBMISSIONS_FOLDER} \
+    --client-id ${GITHUB_CLIENT_ID}

@@ -27,6 +27,14 @@ struct Args {
     /// path to a folder, where submissions will be stored
     #[arg(long, default_value_t = String::from("submission"))]
     submissions_folder: String,
+
+    /// github client id
+    #[arg(long)]
+    client_id: String,
+
+    /// name of database
+    #[arg(long, default_value_t = String::from("riscv_sim"))]
+    db_name: String,
 }
 
 #[tokio::main]
@@ -45,9 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mongo_uri =
         std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-    let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
 
-    let client_id = std::env::var("GITHUB_CLIENT_ID").context("GITHUB_CLIENT_ID not set")?;
     let client_secret =
         std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
     let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
@@ -63,8 +69,8 @@ async fn main() -> anyhow::Result<()> {
             ticks_max: args.ticks_max,
             codesize_max: args.codesize_max,
             mongo_uri,
-            db_name,
-            client_id,
+            db_name: args.db_name,
+            client_id: args.client_id,
             client_secret,
             jwt_secret,
             auth_url: "https://github.com/login/oauth/authorize".to_string(),
