@@ -81,7 +81,7 @@ class RISCVSimulator {
         }
 
         const lines = textarea.value.split('\n').length;
-        
+
         let numbers = '';
         for (let i = 1; i <= lines; i++) {
             numbers += i + '\n';
@@ -108,17 +108,17 @@ class RISCVSimulator {
             const textarea = e.target;
             const start = textarea.selectionStart;
             const end = textarea.selectionEnd;
-            
+
             textarea.value = textarea.value.substring(0, start) + '    ' + textarea.value.substring(end);
             textarea.selectionStart = textarea.selectionEnd = start + 4;
-            
+
             this.updateLineNumbers();
         }
     }
 
     async handleSubmit(e) {
         e.preventDefault();
-        
+
         const formData = new FormData(e.target);
         const ticks = formData.get('ticks');
         let code = formData.get('file');
@@ -128,19 +128,19 @@ class RISCVSimulator {
 
         try {
             const endpoint = '/api/submission';
-            
+
             const response = await fetch(endpoint, {
                 method: 'POST',
                 body: formData
             });
 
             const submitResult = await response.json();
-            
+
             // Check if the response contains an error (compilation errors come as {error: "..."})
             if (submitResult.error) {
                 throw new Error(submitResult.error);
             }
-            
+
             // For non-2xx responses, also check for error details
             if (!response.ok) {
                 const errorText = submitResult.error || submitResult.err?.msg || `HTTP ${response.status}`;
@@ -170,15 +170,15 @@ class RISCVSimulator {
             }
 
             const [sourceRes, traceRes] = await Promise.all([
-                fetch(`/api/files/${encodeURIComponent(ulid)}/source.json`),
-                fetch(`/api/files/${encodeURIComponent(ulid)}/trace.json`),
+                fetch(`/api/submission/${encodeURIComponent(ulid)}/source`),
+                fetch(`/api/submission/${encodeURIComponent(ulid)}/trace`),
             ]);
 
             if (!sourceRes.ok || !traceRes.ok) {
                 throw new Error('Failed to fetch submission results');
             }
 
-            const source = await sourceRes.json();
+            const source = await sourceRes.text();
             const trace = await traceRes.json();
 
             if (trace.error) {
@@ -273,7 +273,7 @@ class RISCVSimulator {
     async fetchSubmissionById() {
         const input = document.getElementById('submission-id');
         const id = input?.value?.trim();
-        
+
         if (!id) {
             alert('Please enter a submission ID');
             return;
@@ -281,7 +281,7 @@ class RISCVSimulator {
 
         const fetchBtn = document.getElementById('fetch-btn');
         const originalText = fetchBtn.textContent;
-        
+
         try {
             fetchBtn.textContent = 'Polling...';
             fetchBtn.disabled = true;
@@ -317,8 +317,8 @@ class RISCVSimulator {
             }
 
             const [sourceRes, traceRes] = await Promise.all([
-                fetch(`/api/files/${encodeURIComponent(id)}/source.json`),
-                fetch(`/api/files/${encodeURIComponent(id)}/trace.json`),
+                fetch(`/submission/${encodeURIComponent(id)}/source`),
+                fetch(`/submission/${encodeURIComponent(id)}/trace`),
             ]);
 
             if (!sourceRes.ok || !traceRes.ok) {
@@ -326,7 +326,7 @@ class RISCVSimulator {
                 return;
             }
 
-            const source = await sourceRes.json();
+            const source = await sourceRes.text();
             const trace = await traceRes.json();
 
             if (trace.error) {
@@ -470,16 +470,16 @@ class SubmissionsPage {
     async viewSubmission(id) {
         try {
             const [sourceRes, traceRes] = await Promise.all([
-                fetch(`/api/files/${encodeURIComponent(id)}/source.json`),
-                fetch(`/api/files/${encodeURIComponent(id)}/trace.json`),
-            ]);
+                          fetch(`/submission/${encodeURIComponent(id)}/source`),
+                          fetch(`/submission/${encodeURIComponent(id)}/trace`),
+                      ]);
 
             if (!sourceRes.ok || !traceRes.ok) {
                 alert('Submission not found or still processing');
                 return;
             }
 
-            const source = await sourceRes.json();
+            const source = await sourceRes.text();
             const trace = await traceRes.json();
 
             if (trace.error) {
@@ -616,7 +616,7 @@ class ResultsPage {
                         <strong>Instruction:</strong> ${this.escapeHtml(instructionText)}
                         ${this.renderInstructionDetails(instruction)}
                     </div>
-                    
+
                     <div class="registers-container">
                         <div class="registers-section registers-before">
                             <div class="registers-header">Registers before execution</div>
@@ -624,7 +624,7 @@ class ResultsPage {
                                 ${this.renderRegistersReal(registersBefore.storage || [], registersAfter.storage || [])}
                             </div>
                         </div>
-                        
+
                         <div class="registers-section registers-after">
                             <div class="registers-header">Registers after execution</div>
                             <div class="registers-content">
@@ -737,23 +737,23 @@ class ResultsPage {
     }
 
     renderRegistersReal(storage, compareStorage = []) {
-        const registerNames = ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7', 
+        const registerNames = ['x0', 'x1', 'x2', 'x3', 'x4', 'x5', 'x6', 'x7',
                               'x8', 'x9', 'x10', 'x11', 'x12', 'x13', 'x14', 'x15',
                               'x16', 'x17', 'x18', 'x19', 'x20', 'x21', 'x22', 'x23',
                               'x24', 'x25', 'x26', 'x27', 'x28', 'x29', 'x30', 'x31'];
-        
+
         const abiNames = ['zero', 'ra', 'sp', 'gp', 'tp', 't0', 't1', 't2',
                          's0', 's1', 'a0', 'a1', 'a2', 'a3', 'a4', 'a5',
                          'a6', 'a7', 's2', 's3', 's4', 's5', 's6', 's7',
                          's8', 's9', 's10', 's11', 't3', 't4', 't5', 't6'];
 
         let html = '<div class="register-grid">';
-        
+
         registerNames.forEach((reg, index) => {
             const value = storage[index] || 0;
             const compareValue = compareStorage[index] || 0;
             const changed = value !== compareValue;
-            
+
             html += `
                 <div class="register-item ${changed ? 'register-changed' : ''}">
                     <span class="register-name">${reg} (${abiNames[index]})</span>
@@ -761,7 +761,7 @@ class ResultsPage {
                 </div>
             `;
         });
-        
+
         html += '</div>';
         return html;
     }
@@ -772,7 +772,7 @@ class ResultsPage {
         }
 
         let html = '<div class="memory-changes"><h4>Memory changes:</h4><div class="memory-grid">';
-        
+
         Object.entries(memoryChanges).forEach(([address, value]) => {
             html += `
                 <div class="memory-item">
@@ -781,7 +781,7 @@ class ResultsPage {
                 </div>
             `;
         });
-        
+
         html += '</div></div>';
         return html;
     }
@@ -1077,7 +1077,7 @@ class ResultsPage {
 
     initializeStepHandlers() {
         const stepHeaders = document.querySelectorAll('.step-header');
-        
+
         stepHeaders.forEach(header => {
             header.addEventListener('click', () => {
                 const step = header.parentElement;

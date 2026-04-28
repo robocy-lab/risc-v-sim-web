@@ -20,7 +20,7 @@ pub fn submission_file(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
 }
 
 pub fn source_file(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
-    submission_dir(submissions_folder, ulid).join("source.json")
+    submission_dir(submissions_folder, ulid).join("input.s")
 }
 
 pub fn submission_dir(submissions_folder: &Path, ulid: Ulid) -> PathBuf {
@@ -117,9 +117,6 @@ impl SubmissionTaskRun {
         )
         .await;
 
-        let source_json =
-            serde_json::json!({ "code": String::from_utf8_lossy(&task.source_code) }).to_string();
-
         let final_status = match sim_res {
             Ok(()) => SubmissionStatus::Completed,
             Err(e) => {
@@ -127,15 +124,6 @@ impl SubmissionTaskRun {
                 SubmissionStatus::Completed
             }
         };
-
-        if let Err(err) = fs::write(
-            source_file(&internal.submissions_folder, task.ulid),
-            source_json,
-        )
-        .await
-        {
-            tracing::error!("Failed to write source: {err:#}");
-        }
 
         internal
             .db_client

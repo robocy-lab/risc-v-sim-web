@@ -51,11 +51,7 @@ async fn get_submission_source_handler(
     State(state): State<Arc<AppState>>,
     Path(ulid): Path<Ulid>,
 ) -> Response {
-    serve_file(
-        source_file(&state.submissions_folder, ulid),
-        "application/json",
-    )
-    .await
+    serve_file(source_file(&state.submissions_folder, ulid), "text/plain").await
 }
 
 async fn serve_file(path: PathBuf, content_type: &'static str) -> Response {
