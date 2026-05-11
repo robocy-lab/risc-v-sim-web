@@ -1,6 +1,10 @@
 use anyhow::Context;
 use clap::Parser;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::{
+    net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
+};
+use tokio::fs;
 use tracing::{Level, info};
 
 #[derive(Parser, Debug)]
@@ -35,6 +39,10 @@ struct Args {
     /// name of database
     #[arg(long, default_value_t = String::from("riscv_sim"))]
     db_name: String,
+
+    /// path to file with jwt token
+    #[arg(long)]
+    jwt_token_path: String,
 }
 
 #[tokio::main]
@@ -56,7 +64,11 @@ async fn main() -> anyhow::Result<()> {
 
     let client_secret =
         std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
-    let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
+
+    let jwt_secret_path: PathBuf = args.jwt_token_path.into();
+    let jwt_secret = fs::read_to_string(&jwt_secret_path)
+        .await
+        .with_context(|| format!("failed to read JWT secret from {jwt_secret_path:?}"))?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),

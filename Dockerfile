@@ -28,8 +28,6 @@ ENV SUBMISSIONS_FOLDER="submission"
 ENV GITHUB_CLIENT_ID=""
 ENV GITHUB_CLIENT_SECRET=""
 
-ENV JWT_SECRET=""
-
 RUN mkdir -p /app/submission
 
 EXPOSE 3000
@@ -41,4 +39,5 @@ ENTRYPOINT ./target/release/risc-v-sim-web \
     --codesize-max ${CODESIZE_MAX} \
     --ticks-max ${TICKS_MAX} \
     --submissions-folder ${SUBMISSIONS_FOLDER} \
-    --client-id ${GITHUB_CLIENT_ID}
+    --client-id ${GITHUB_CLIENT_ID} \
+    --jwt-token-path "/app/jwt_secret_example"
