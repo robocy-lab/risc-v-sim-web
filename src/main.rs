@@ -17,20 +17,20 @@ struct Args {
     codesize_max: u32,
 
     /// path to risc-v as binary
-    #[arg(long, default_value_t = String::from("riscv64-elf-as"))]
-    as_binary: String,
+    #[arg(long)]
+    as_binary: PathBuf,
 
     /// path to risc-v ld binary
-    #[arg(long, default_value_t = String::from("riscv64-elf-ld"))]
-    ld_binary: String,
+    #[arg(long)]
+    ld_binary: PathBuf,
 
     /// path to risc-v simulator binary
-    #[arg(long, default_value_t = String::from("simulator"))]
-    simulator_binary: String,
+    #[arg(long)]
+    simulator_binary: PathBuf,
 
     /// path to a folder, where submissions will be stored
-    #[arg(long, default_value_t = String::from("submission"))]
-    submissions_folder: String,
+    #[arg(long, default_value = "submission")]
+    submissions_folder: PathBuf,
 
     /// github client id
     #[arg(long)]
@@ -42,7 +42,7 @@ struct Args {
 
     /// path to file with jwt token
     #[arg(long)]
-    jwt_token_path: String,
+    jwt_token_path: PathBuf,
 }
 
 #[tokio::main]
@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
     let client_secret =
         std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
 
-    let jwt_secret_path: PathBuf = args.jwt_token_path.into();
+    let jwt_secret_path = args.jwt_token_path;
     let jwt_secret = fs::read_to_string(&jwt_secret_path)
         .await
         .with_context(|| format!("failed to read JWT secret from {jwt_secret_path:?}"))?;
@@ -74,10 +74,10 @@ async fn main() -> anyhow::Result<()> {
         tracing::info_span!("rvsim-web"),
         listener,
         risc_v_sim_web::Config {
-            as_binary: args.as_binary.into(),
-            ld_binary: args.ld_binary.into(),
-            simulator_binary: args.simulator_binary.into(),
-            submissions_folder: args.submissions_folder.into(),
+            as_binary: args.as_binary,
+            ld_binary: args.ld_binary,
+            simulator_binary: args.simulator_binary,
+            submissions_folder: args.submissions_folder,
             ticks_max: args.ticks_max,
             codesize_max: args.codesize_max,
             mongo_uri,
