@@ -1,6 +1,49 @@
 use anyhow::Context;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use clap::Parser;
+use std::{
+    net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
+};
+use tokio::fs;
 use tracing::{Level, info};
+
+#[derive(Parser, Debug)]
+#[command()]
+struct Args {
+    #[arg(long)]
+    ticks_max: u32,
+
+    #[arg(long)]
+    codesize_max: u32,
+
+    /// path to risc-v as binary
+    #[arg(long)]
+    as_binary: PathBuf,
+
+    /// path to risc-v ld binary
+    #[arg(long)]
+    ld_binary: PathBuf,
+
+    /// path to risc-v simulator binary
+    #[arg(long)]
+    simulator_binary: PathBuf,
+
+    /// path to a folder, where submissions will be stored
+    #[arg(long, default_value = "submission")]
+    submissions_folder: PathBuf,
+
+    /// github client id
+    #[arg(long)]
+    client_id: String,
+
+    /// name of database
+    #[arg(long, default_value_t = String::from("riscv_sim"))]
+    db_name: String,
+
+    /// path to file with jwt token
+    #[arg(long)]
+    jwt_token_path: PathBuf,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -14,43 +57,32 @@ async fn main() -> anyhow::Result<()> {
     let port = listener.local_addr()?.port();
     info!(port = port, "Starting...");
 
-    let ticks_max: u32 = std::env::var("TICKS_MAX")?.parse()?;
-    let codesize_max: u32 = std::env::var("CODESIZE_MAX")?.parse()?;
-    let as_binary = std::env::var("AS_BINARY")
-        .unwrap_or_else(|_| "riscv64-elf-as".to_string())
-        .into();
-    let ld_binary = std::env::var("LD_BINARY")
-        .unwrap_or_else(|_| "riscv64-elf-ld".to_string())
-        .into();
-    let simulator_binary = std::env::var("SIMULATOR_BINARY")
-        .unwrap_or_else(|_| "simulator".to_string())
-        .into();
-    let submissions_folder = std::env::var("SUBMISSIONS_FOLDER")
-        .unwrap_or_else(|_| "submission".to_string())
-        .into();
+    let args = Args::parse();
 
     let mongo_uri =
         std::env::var("MONGODB_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-    let db_name = std::env::var("MONGODB_DB").unwrap_or_else(|_| "riscv_sim".to_string());
 
-    let client_id = std::env::var("GITHUB_CLIENT_ID").context("GITHUB_CLIENT_ID not set")?;
     let client_secret =
         std::env::var("GITHUB_CLIENT_SECRET").context("GITHUB_CLIENT_SECRET not set")?;
-    let jwt_secret = std::env::var("JWT_SECRET").context("JWT_SECRET not set")?;
+
+    let jwt_secret_path = args.jwt_token_path;
+    let jwt_secret = fs::read_to_string(&jwt_secret_path)
+        .await
+        .with_context(|| format!("failed to read JWT secret from {jwt_secret_path:?}"))?;
 
     risc_v_sim_web::run(
         tracing::info_span!("rvsim-web"),
         listener,
         risc_v_sim_web::Config {
-            as_binary,
-            ld_binary,
-            simulator_binary,
-            submissions_folder,
-            ticks_max,
-            codesize_max,
+            as_binary: args.as_binary,
+            ld_binary: args.ld_binary,
+            simulator_binary: args.simulator_binary,
+            submissions_folder: args.submissions_folder,
+            ticks_max: args.ticks_max,
+            codesize_max: args.codesize_max,
             mongo_uri,
-            db_name,
-            client_id,
+            db_name: args.db_name,
+            client_id: args.client_id,
             client_secret,
             jwt_secret,
             auth_url: "https://github.com/login/oauth/authorize".to_string(),
