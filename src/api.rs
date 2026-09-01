@@ -232,6 +232,10 @@ impl ApiError {
             cause: anyhow::anyhow!("Unauthorized access"),
         }
     }
+
+    pub fn is_unauthorized(&self) -> bool {
+        self.code == "unauthorized" && self.status == StatusCode::UNAUTHORIZED
+    }
 }
 
 impl IntoResponse for ApiError {

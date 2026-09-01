@@ -23,7 +23,7 @@ jobs:
             target/
           key: ci-check-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ci-check-cargo-
-      - run: cargo check --locked
+      - run: cargo check --locked --all-features
   unit-tests:
     runs-on: ubuntu-latest 
     steps:

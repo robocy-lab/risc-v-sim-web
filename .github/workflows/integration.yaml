@@ -99,4 +99,4 @@ jobs:
       - name: Run integration tests
         run: |
           export PATH=~/.cargo/bin:$PATH
-          cargo test --test "*" --locked -- --show-output
+          cargo test --test "*" --locked --features noop_authorization -- --show-output
