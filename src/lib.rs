@@ -3,7 +3,6 @@ pub mod auth;
 pub mod database;
 pub mod submission_actor;
 
-use anyhow::Context;
 use axum::{Router, body::Body, http::Request, middleware, routing::get};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,34 +31,31 @@ pub struct Config {
     /// Max size of the upload in bytes.
     pub codesize_max: u32,
 
-    /* Auth configuration */
-    /// OAuth2 client id.
-    pub client_id: String,
-    /// OAuth2 client secret.
-    pub client_secret: String,
-    /// JWT secret used to sign user's claims.
-    pub jwt_secret: String,
-    /// Standard OAuth2 auth endpoint.
-    pub auth_url: String,
-    /// Standard OAuth2 token endpoint.
-    pub token_url: String,
-
     /* Db configuration */
     /// URI of the mongo server.
     pub mongo_uri: String,
     /// Mongo database name.
     pub db_name: String,
+
+    #[cfg(feature = "github_authentication")]
+    pub github_authentication: auth::github_authentication::AuthConfig,
+
+    #[cfg(feature = "jwt_authorization")]
+    pub jwt_authorization: auth::jwt_authorization::AuthConfig,
 }
 
 pub struct AppState {
     pub ticks_max: u32,
     pub codesize_max: u32,
     pub submissions_folder: PathBuf,
-    pub jwt_encoding_key: jsonwebtoken::EncodingKey,
-    pub jwt_decoding_key: jsonwebtoken::DecodingKey,
-    pub oauth_client: oauth2::basic::BasicClient,
     pub db: Arc<DbClient>,
     pub task_send: Sender<SubmissionTask>,
+
+    #[cfg(feature = "github_authentication")]
+    pub github_authentication: auth::github_authentication::AuthState,
+
+    #[cfg(feature = "jwt_authorization")]
+    pub jwt_authorization: auth::jwt_authorization::AuthState,
 }
 
 pub async fn health_handler() -> &'static str {
@@ -71,27 +67,23 @@ pub async fn run(
     listener: TcpListener,
     cfg: Config,
 ) -> anyhow::Result<()> {
-    let auth_url = oauth2::AuthUrl::new(cfg.auth_url).context("make auth_url")?;
-    let token_url = oauth2::TokenUrl::new(cfg.token_url).context("make token_url")?;
-
-    let oauth_client = oauth2::basic::BasicClient::new(
-        oauth2::ClientId::new(cfg.client_id),
-        Some(oauth2::ClientSecret::new(cfg.client_secret)),
-        auth_url,
-        Some(token_url),
-    );
-
     let (task_send, task_recv) = tokio::sync::mpsc::channel::<SubmissionTask>(100);
     let db_client = DbClient::new(&cfg.mongo_uri, &cfg.db_name).await?;
+
     let state = Arc::new(AppState {
         db: Arc::new(db_client),
         task_send,
-        jwt_encoding_key: jsonwebtoken::EncodingKey::from_secret(cfg.jwt_secret.as_bytes()),
-        jwt_decoding_key: jsonwebtoken::DecodingKey::from_secret(cfg.jwt_secret.as_bytes()),
-        oauth_client,
         ticks_max: cfg.ticks_max,
         codesize_max: cfg.codesize_max,
         submissions_folder: cfg.submissions_folder.clone(),
+
+        #[cfg(feature = "github_authentication")]
+        github_authentication: auth::github_authentication::AuthState::new(
+            cfg.github_authentication,
+        ),
+
+        #[cfg(feature = "jwt_authorization")]
+        jwt_authorization: auth::jwt_authorization::AuthState::load(cfg.jwt_authorization).await?,
     });
 
     let submission_actor = SubmissionActor::new(

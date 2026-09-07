@@ -1,11 +1,11 @@
 #[cfg(feature = "github_authentication")]
-mod github_authentication;
+pub mod github_authentication;
 #[cfg(feature = "jwt_authorization")]
-mod jwt_authorization;
+pub mod jwt_authorization;
 #[cfg(feature = "noop_authentication")]
-mod noop_authentication;
+pub mod noop_authentication;
 #[cfg(feature = "noop_authorization")]
-mod noop_authorization;
+pub mod noop_authorization;
 
 #[cfg(feature = "noop_authorization")]
 pub use noop_authorization::ADMIN_TOKEN;

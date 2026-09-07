@@ -19,7 +19,8 @@ async fn noop_login(
     Query(user): Query<User>,
     jar: CookieJar,
 ) -> Result<(CookieJar, Redirect), StatusCode> {
-    let jwt_res = super::jwt_authorization::new_jwt_cookie_from_user(&state, &user);
+    let jwt_res =
+        super::jwt_authorization::new_jwt_cookie_from_user(&state.jwt_authorization, &user);
     match jwt_res {
         Ok(cookie) => Ok((jar.add(cookie), Redirect::to("/"))),
         Err(err) => {

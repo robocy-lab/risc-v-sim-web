@@ -74,11 +74,14 @@ pub async fn default_config(test_name: &str) -> risc_v_sim_web::Config {
         codesize_max: 256,
         mongo_uri: TEST_MONGO_URI.to_string(),
         db_name: TEST_DB_NAME.to_string(),
-        client_id: "test_client_id".to_string(),
-        client_secret: "test_client_secret".to_string(),
-        jwt_secret: "test_secret_key_for_integration_tests".to_string(),
-        auth_url: "https://example.com/auth".to_string(),
-        token_url: "https://example.com/token".to_string(),
+
+        #[cfg(feature = "jwt_authorization")]
+        #[allow(unreachable_code)]
+        jwt_authorization: panic!("Don't run tests with jwt authorization"),
+
+        #[cfg(feature = "github_authentication")]
+        #[allow(unreachable_code)]
+        github_authentication: panic!("Don't run tests with github authentication"),
     }
 }
 
